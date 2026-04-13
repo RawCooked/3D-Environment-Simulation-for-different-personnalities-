@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Life Simulation Prototype</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: #1a1a2e;
+            color: #e0e0e0;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* ── Left Panel: Controls ── */
+        #ui-panel {
+            width: 260px;
+            background: #16213e;
+            border-right: 1px solid #0f3460;
+            display: flex;
+            flex-direction: column;
+            padding: 16px;
+            gap: 12px;
+            overflow-y: auto;
+        }
+        #ui-panel h2 {
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: #e94560;
+            border-bottom: 1px solid #0f3460;
+            padding-bottom: 8px;
+        }
+        .btn {
+            padding: 10px 14px;
+            border: 1px solid #0f3460;
+            background: #1a1a2e;
+            color: #e0e0e0;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            text-align: left;
+            transition: all 0.15s;
+        }
+        .btn:hover { background: #0f3460; border-color: #e94560; }
+        .btn:active { transform: scale(0.97); }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn.place-btn { border-left: 3px solid #53d8fb; }
+        .btn.action-btn { border-left: 3px solid #e94560; }
+        .btn.active { background: #e94560; color: #fff; }
+
+        /* ── State Display ── */
+        #state-display {
+            background: #1a1a2e;
+            border: 1px solid #0f3460;
+            border-radius: 6px;
+            padding: 12px;
+            font-size: 12px;
+        }
+        .state-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+        .state-row:last-child { margin-bottom: 0; }
+        .state-bar-bg {
+            width: 100px;
+            height: 8px;
+            background: #0a0a1a;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .state-bar {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s;
+        }
+
+        /* ── Activity Log ── */
+        #log-container {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        #activity-log {
+            flex: 1;
+            overflow-y: auto;
+            font-size: 11px;
+            background: #0a0a1a;
+            border: 1px solid #0f3460;
+            border-radius: 6px;
+            padding: 8px;
+            line-height: 1.6;
+        }
+        #activity-log .log-entry { color: #888; }
+        #activity-log .log-entry.action { color: #53d8fb; }
+        #activity-log .log-entry.state { color: #e94560; }
+
+        /* ── Canvas Area ── */
+        #canvas-container {
+            flex: 1;
+            position: relative;
+        }
+        #canvas-container canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        #status-bar {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            background: rgba(22, 33, 62, 0.9);
+            padding: 8px 14px;
+            border-radius: 6px;
+            font-size: 12px;
+            border: 1px solid #0f3460;
+        }
+        #placement-hint {
+            position: absolute;
+            bottom: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(233, 69, 96, 0.9);
+            padding: 8px 20px;
+            border-radius: 6px;
+            font-size: 13px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+<!-- ── UI Panel ── -->
+<div id="ui-panel">
+    <h2>Place Objects</h2>
+    <button class="btn place-btn" data-place="kitchen">🍳 Place Kitchen</button>
+    <button class="btn place-btn" data-place="bed">🛏️ Place Bed</button>
+    <button class="btn place-btn" data-place="bathroom">🚿 Place Bathroom</button>
+
+    <h2>Actions</h2>
+    <button class="btn action-btn" data-action="go_to_kitchen">Go to Kitchen</button>
+    <button class="btn action-btn" data-action="go_to_bed">Go to Bed</button>
+    <button class="btn action-btn" data-action="go_to_bathroom">Go to Bathroom</button>
+    <button class="btn action-btn" data-action="sleep">Sleep</button>
+    <button class="btn action-btn" data-action="eat">Eat</button>
+    <button class="btn action-btn" data-action="use_toilet">Use Toilet</button>
+    <button class="btn action-btn" data-action="idle">Idle</button>
+    <button class="btn action-btn" data-action="wander_randomly">Wander</button>
+
+    <h2>Agent State</h2>
+    <div id="state-display"></div>
+
+    <div id="log-container">
+        <h2>Activity Log</h2>
+        <div id="activity-log"></div>
+    </div>
+</div>
+
+<!-- ── 3D Canvas ── -->
+<div id="canvas-container">
+    <div id="status-bar">Ready</div>
+    <div id="placement-hint">Click inside the room to place object</div>
+</div>
+
+<!-- ── Three.js ── -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<script>
+// ============================================================================
+//  CONSTANTS
+// ============================================================================
+const ROOM_SIZE   = 20;          // room is 20x20 units
+const GRID_SIZE   = 1;           // each grid cell = 1 unit
+const MOVE_SPEED  = 4;           // units per second
+const OBJECT_SIZE = 2;           // footprint of placeable objects
+
+const COLORS = {
+    floor:    0x2a2a4a,
+    wall:     0x4a4a6a,
+    grid:     0x333355,
+    kitchen:  0xf4a261,
+    bed:      0x7ec8e3,
+    bathroom: 0x95e1d3,
+    agent:    0xe94560,
+    agentDir: 0xff6b81,
+};
+
+// ============================================================================
+//  MODULE: WorldObject — Represents a placeable object in the room
+// ============================================================================
+class WorldObject {
+    static _counter = {};
+
+    constructor(type, x, z) {
+        // Auto-generate unique ID like "kitchen_1"
+        WorldObject._counter[type] = (WorldObject._counter[type] || 0) + 1;
+        this.id   = `${type}_${WorldObject._counter[type]}`;
+        this.type = type;
+        this.x    = x;
+        this.z    = z;
+        this.size = OBJECT_SIZE;
+        this.mesh = null;    // set by renderer
+    }
+
+    // Interaction point: where the agent stands to use this object
+    get interactionPoint() {
+        return { x: this.x, z: this.z + this.size / 2 + 0.5 };
+    }
+}
+
+// ============================================================================
+//  MODULE: StateSystem — Internal needs of an agent
+// ============================================================================
+class StateSystem {
+    constructor() {
+        this.energy  = 80;
+        this.hunger  = 30;
+        this.hygiene = 70;
+        this.mood    = 'happy';
+    }
+
+    // Clamp all values to 0–100
+    _clamp() {
+        this.energy  = Math.max(0, Math.min(100, this.energy));
+        this.hunger  = Math.max(0, Math.min(100, this.hunger));
+        this.hygiene = Math.max(0, Math.min(100, this.hygiene));
+    }
+
+    // Recalculate mood from current needs
+    updateMood() {
+        const avg = (this.energy + (100 - this.hunger) + this.hygiene) / 3;
+        if (avg > 66)      this.mood = 'happy';
+        else if (avg > 33) this.mood = 'neutral';
+        else               this.mood = 'sad';
+    }
+
+    modify(changes) {
+        for (const [key, delta] of Object.entries(changes)) {
+            if (key in this && key !== 'mood') this[key] += delta;
+        }
+        this._clamp();
+        this.updateMood();
+    }
+
+    // Passive decay over time
+    tick(dt) {
+        this.energy  -= 1.0 * dt;
+        this.hunger  += 0.8 * dt;
+        this.hygiene -= 0.5 * dt;
+        this._clamp();
+        this.updateMood();
+    }
+
+    toJSON() {
+        return {
+            energy:  Math.round(this.energy),
+            hunger:  Math.round(this.hunger),
+            hygiene: Math.round(this.hygiene),
+            mood:    this.mood
+        };
+    }
+}
+
+// ============================================================================
+//  MODULE: Agent — The controllable character
+// ============================================================================
+class Agent {
+    constructor(x, z) {
+        this.x = x;
+        this.z = z;
+        this.targetX = x;
+        this.targetZ = z;
+        this.state   = new StateSystem();
+        this.mesh    = null;      // set by renderer
+        this.busy    = false;     // true while performing an action
+        this.currentAction = null;
+        this._moveResolve  = null;
+    }
+
+    // Returns true if agent is still walking toward target
+    get isMoving() {
+        const dx = this.targetX - this.x;
+        const dz = this.targetZ - this.z;
+        return Math.sqrt(dx * dx + dz * dz) > 0.05;
+    }
+
+    // Set movement target; returns a Promise that resolves on arrival
+    moveTo(x, z) {
+        // Clamp to room bounds
+        const half = ROOM_SIZE / 2 - 0.5;
+        this.targetX = Math.max(-half, Math.min(half, x));
+        this.targetZ = Math.max(-half, Math.min(half, z));
+
+        return new Promise(resolve => {
+            if (!this.isMoving) { resolve(); return; }
+            this._moveResolve = resolve;
+        });
+    }
+
+    // Called every frame to advance position
+    updateMovement(dt) {
+        if (!this.isMoving) {
+            if (this._moveResolve) {
+                const r = this._moveResolve;
+                this._moveResolve = null;
+                r();
+            }
+            return;
+        }
+
+        const dx = this.targetX - this.x;
+        const dz = this.targetZ - this.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        const step = Math.min(MOVE_SPEED * dt, dist);
+        this.x += (dx / dist) * step;
+        this.z += (dz / dist) * step;
+    }
+
+    // ── External API: call an action by name ──
+    // This is the entry point an LLM or AI system will use later
+    async executeAction(actionName) {
+        if (this.busy) {
+            game.log(`Cannot "${actionName}" — agent is busy`, 'state');
+            return false;
+        }
+        return game.actionSystem.execute(actionName, this);
+    }
+
+    // Alias for discoverability
+    async performAction(name) { return this.executeAction(name); }
+}
+
+// ============================================================================
+//  MODULE: ActionSystem — Registry of all available actions
+// ============================================================================
+class ActionSystem {
+    constructor(game) {
+        this.game    = game;
+        this.actions = {};
+        this._registerDefaults();
+    }
+
+    // Register a named action
+    register(name, definition) {
+        this.actions[name] = definition;
+    }
+
+    // List all available action names (useful for AI later)
+    getAvailableActions() {
+        return Object.keys(this.actions);
+    }
+
+    // Execute a named action on an agent
+    async execute(actionName, agent) {
+        const action = this.actions[actionName];
+        if (!action) {
+            this.game.log(`Unknown action: "${actionName}"`, 'state');
+            return false;
+        }
+        agent.busy = true;
+        agent.currentAction = actionName;
+        this.game.log(`Starting: ${actionName}`, 'action');
+        this.game.updateStatus(`${actionName}...`);
+
+        try {
+            await action.fn(agent, this.game);
+        } catch (err) {
+            this.game.log(`Action error: ${err.message}`, 'state');
+        }
+
+        agent.busy = false;
+        agent.currentAction = null;
+        this.game.updateStatus('Idle');
+        return true;
+    }
+
+    // ── Built-in action definitions ──
+    _registerDefaults() {
+
+        // Helper: move agent to the first object of a given type
+        const goToObject = async (agent, game, objectType) => {
+            const obj = game.findObject(objectType);
+            if (!obj) {
+                game.log(`No ${objectType} placed!`, 'state');
+                return null;
+            }
+            const pt = obj.interactionPoint;
+            game.log(`Walking to ${obj.id}...`);
+            await agent.moveTo(pt.x, pt.z);
+            return obj;
+        };
+
+        // Helper: wait for a duration (simulates doing something)
+        const wait = (ms) => new Promise(r => setTimeout(r, ms));
+
+        // ── Navigation actions ──
+        this.register('go_to_kitchen', {
+            description: 'Walk to the kitchen',
+            target: 'kitchen',
+            fn: async (agent, game) => {
+                await goToObject(agent, game, 'kitchen');
+            }
+        });
+
+        this.register('go_to_bed', {
+            description: 'Walk to the bed',
+            target: 'bed',
+            fn: async (agent, game) => {
+                await goToObject(agent, game, 'bed');
+            }
+        });
+
+        this.register('go_to_bathroom', {
+            description: 'Walk to the bathroom',
+            target: 'bathroom',
+            fn: async (agent, game) => {
+                await goToObject(agent, game, 'bathroom');
+            }
+        });
+
+        // ── Behavior actions ──
+        this.register('sleep', {
+            description: 'Sleep in bed to restore energy',
+            target: 'bed',
+            fn: async (agent, game) => {
+                const obj = await goToObject(agent, game, 'bed');
+                if (!obj) return;
+                game.log('Sleeping... 💤');
+                await wait(2000);
+                agent.state.modify({ energy: +40, hunger: +5 });
+                game.log('Woke up feeling rested!', 'action');
+            }
+        });
+
+        this.register('eat', {
+            description: 'Eat at the kitchen to reduce hunger',
+            target: 'kitchen',
+            fn: async (agent, game) => {
+                const obj = await goToObject(agent, game, 'kitchen');
+                if (!obj) return;
+                game.log('Eating... 🍽️');
+                await wait(1500);
+                agent.state.modify({ hunger: -35, energy: +5 });
+                game.log('Finished eating!', 'action');
+            }
+        });
+
+        this.register('use_toilet', {
+            description: 'Use the bathroom to increase hygiene',
+            target: 'bathroom',
+            fn: async (agent, game) => {
+                const obj = await goToObject(agent, game, 'bathroom');
+                if (!obj) return;
+                game.log('Using bathroom... 🚿');
+                await wait(1500);
+                agent.state.modify({ hygiene: +35 });
+                game.log('Feeling fresh!', 'action');
+            }
+        });
+
+        this.register('idle', {
+            description: 'Stand still for a moment',
+            target: null,
+            fn: async (agent, game) => {
+                game.log('Idling...');
+                await wait(1000);
+                game.log('Done idling.', 'action');
+            }
+        });
+
+        this.register('wander_randomly', {
+            description: 'Walk to a random spot in the room',
+            target: null,
+            fn: async (agent, game) => {
+                const half = ROOM_SIZE / 2 - 1;
+                const rx = (Math.random() * 2 - 1) * half;
+                const rz = (Math.random() * 2 - 1) * half;
+                game.log(`Wandering to (${rx.toFixed(1)}, ${rz.toFixed(1)})...`);
+                await agent.moveTo(rx, rz);
+                game.log('Arrived at random spot.', 'action');
+            }
+        });
+    }
+}
+
+// ============================================================================
+//  MODULE: Renderer — Three.js rendering (top-down 2D view)
+// ============================================================================
+class Renderer {
+    constructor(container) {
+        this.container = container;
+
+        // Scene
+        this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(0x0a0a1a);
+
+        // Orthographic camera (top-down)
+        const aspect = container.clientWidth / container.clientHeight;
+        const viewSize = 14;
+        this.camera = new THREE.OrthographicCamera(
+            -viewSize * aspect, viewSize * aspect,
+            viewSize, -viewSize,
+            0.1, 100
+        );
+        this.camera.position.set(0, 30, 0);
+        this.camera.lookAt(0, 0, 0);
+
+        // Renderer
+        this.renderer = new THREE.WebGLRenderer({ antialias: true });
+        this.renderer.setSize(container.clientWidth, container.clientHeight);
+        this.renderer.setPixelRatio(window.devicePixelRatio);
+        container.appendChild(this.renderer.domElement);
+
+        // Raycaster for click placement
+        this.raycaster = new THREE.Raycaster();
+        this.floorPlane = null;
+
+        this._buildRoom();
+
+        // Handle resize
+        window.addEventListener('resize', () => this._onResize());
+    }
+
+    _buildRoom() {
+        // Floor
+        const floorGeo = new THREE.PlaneGeometry(ROOM_SIZE, ROOM_SIZE);
+        const floorMat = new THREE.MeshBasicMaterial({ color: COLORS.floor });
+        this.floorPlane = new THREE.Mesh(floorGeo, floorMat);
+        this.floorPlane.rotation.x = -Math.PI / 2;
+        this.floorPlane.position.y = 0;
+        this.scene.add(this.floorPlane);
+
+        // Grid lines
+        const gridHelper = new THREE.GridHelper(ROOM_SIZE, ROOM_SIZE, COLORS.grid, COLORS.grid);
+        gridHelper.position.y = 0.01;
+        this.scene.add(gridHelper);
+
+        // Walls (thin boxes along edges)
+        const wallThick = 0.3;
+        const wallHeight = 1.5;
+        const wallMat = new THREE.MeshBasicMaterial({ color: COLORS.wall });
+        const half = ROOM_SIZE / 2;
+        const wallDefs = [
+            { w: ROOM_SIZE + wallThick * 2, d: wallThick, x: 0, z: -half - wallThick / 2 },
+            { w: ROOM_SIZE + wallThick * 2, d: wallThick, x: 0, z:  half + wallThick / 2 },
+            { w: wallThick, d: ROOM_SIZE, x: -half - wallThick / 2, z: 0 },
+            { w: wallThick, d: ROOM_SIZE, x:  half + wallThick / 2, z: 0 },
+        ];
+        wallDefs.forEach(w => {
+            const geo = new THREE.BoxGeometry(w.w, wallHeight, w.d);
+            const mesh = new THREE.Mesh(geo, wallMat);
+            mesh.position.set(w.x, wallHeight / 2, w.z);
+            this.scene.add(mesh);
+        });
+
+        // Ambient light (everything is MeshBasic so this is optional, kept for extensibility)
+        this.scene.add(new THREE.AmbientLight(0xffffff, 1));
+    }
+
+    // Create mesh for a WorldObject
+    createObjectMesh(obj) {
+        const geo = new THREE.BoxGeometry(obj.size, 0.6, obj.size);
+        const mat = new THREE.MeshBasicMaterial({ color: COLORS[obj.type] || 0xffffff });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(obj.x, 0.3, obj.z);
+
+        // Label (using a small floating marker on top)
+        const markerGeo = new THREE.BoxGeometry(obj.size * 0.3, 0.15, obj.size * 0.3);
+        const markerMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const marker = new THREE.Mesh(markerGeo, markerMat);
+        marker.position.y = 0.4;
+        mesh.add(marker);
+
+        // Icon indicator: a small colored sphere
+        const dotGeo = new THREE.SphereGeometry(0.15, 8, 8);
+        const dotMat = new THREE.MeshBasicMaterial({ color: COLORS[obj.type] });
+        const dot = new THREE.Mesh(dotGeo, dotMat);
+        dot.position.y = 0.55;
+        mesh.add(dot);
+
+        this.scene.add(mesh);
+        obj.mesh = mesh;
+        return mesh;
+    }
+
+    // Create agent mesh (circle with direction indicator)
+    createAgentMesh(agent) {
+        const group = new THREE.Group();
+
+        // Body (cylinder for a top-down circle look)
+        const bodyGeo = new THREE.CylinderGeometry(0.5, 0.5, 0.8, 16);
+        const bodyMat = new THREE.MeshBasicMaterial({ color: COLORS.agent });
+        const body = new THREE.Mesh(bodyGeo, bodyMat);
+        body.position.y = 0.4;
+        group.add(body);
+
+        // Direction indicator
+        const dirGeo = new THREE.ConeGeometry(0.2, 0.4, 8);
+        const dirMat = new THREE.MeshBasicMaterial({ color: COLORS.agentDir });
+        const dir = new THREE.Mesh(dirGeo, dirMat);
+        dir.rotation.x = Math.PI / 2;
+        dir.position.set(0, 0.8, -0.4);
+        group.add(dir);
+
+        // Busy indicator ring
+        const ringGeo = new THREE.RingGeometry(0.6, 0.7, 24);
+        const ringMat = new THREE.MeshBasicMaterial({
+            color: 0x53d8fb, side: THREE.DoubleSide, transparent: true, opacity: 0
+        });
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.y = 0.02;
+        group.add(ring);
+        group.userData.ring = ring;
+
+        group.position.set(agent.x, 0, agent.z);
+        this.scene.add(group);
+        agent.mesh = group;
+        return group;
+    }
+
+    // Update agent mesh position + busy indicator
+    updateAgent(agent, time) {
+        if (!agent.mesh) return;
+        agent.mesh.position.set(agent.x, 0, agent.z);
+
+        // Face movement direction
+        if (agent.isMoving) {
+            const angle = Math.atan2(
+                agent.x - agent.targetX,
+                agent.z - agent.targetZ
+            );
+            agent.mesh.rotation.y = angle;
+        }
+
+        // Pulse ring while busy
+        const ring = agent.mesh.userData.ring;
+        if (ring) {
+            ring.material.opacity = agent.busy ? 0.5 + 0.3 * Math.sin(time * 5) : 0;
+        }
+
+        // Bobbing while moving
+        if (agent.isMoving) {
+            agent.mesh.position.y = 0.05 * Math.sin(time * 10);
+        }
+    }
+
+    // Convert screen click to world coordinates on the floor
+    screenToWorld(mouseX, mouseY) {
+        const rect = this.container.getBoundingClientRect();
+        const ndc = new THREE.Vector2(
+            ((mouseX - rect.left) / rect.width) * 2 - 1,
+            -((mouseY - rect.top) / rect.height) * 2 + 1
+        );
+        this.raycaster.setFromCamera(ndc, this.camera);
+        const hits = this.raycaster.intersectObject(this.floorPlane);
+        if (hits.length > 0) {
+            return { x: hits[0].point.x, z: hits[0].point.z };
+        }
+        return null;
+    }
+
+    // Snap coordinates to grid center
+    snapToGrid(x, z) {
+        return {
+            x: Math.round(x / GRID_SIZE) * GRID_SIZE,
+            z: Math.round(z / GRID_SIZE) * GRID_SIZE
+        };
+    }
+
+    render() {
+        this.renderer.render(this.scene, this.camera);
+    }
+
+    _onResize() {
+        const w = this.container.clientWidth;
+        const h = this.container.clientHeight;
+        const aspect = w / h;
+        const viewSize = 14;
+        this.camera.left   = -viewSize * aspect;
+        this.camera.right  =  viewSize * aspect;
+        this.camera.top    =  viewSize;
+        this.camera.bottom = -viewSize;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(w, h);
+    }
+}
+
+// ============================================================================
+//  MODULE: UIController — Connects DOM buttons to game logic
+// ============================================================================
+class UIController {
+    constructor(game) {
+        this.game = game;
+        this.placementMode = null;  // 'kitchen' | 'bed' | 'bathroom' | null
+        this._bindPlaceButtons();
+        this._bindActionButtons();
+    }
+
+    _bindPlaceButtons() {
+        document.querySelectorAll('.place-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const type = btn.dataset.place;
+                if (this.placementMode === type) {
+                    // Toggle off
+                    this.placementMode = null;
+                    btn.classList.remove('active');
+                    document.getElementById('placement-hint').style.display = 'none';
+                } else {
+                    // Deactivate others, activate this
+                    document.querySelectorAll('.place-btn').forEach(b => b.classList.remove('active'));
+                    this.placementMode = type;
+                    btn.classList.add('active');
+                    document.getElementById('placement-hint').style.display = 'block';
+                }
+            });
+        });
+    }
+
+    _bindActionButtons() {
+        document.querySelectorAll('.action-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const actionName = btn.dataset.action;
+                this.game.agent.executeAction(actionName);
+            });
+        });
+    }
+
+    // Called when user clicks on the canvas
+    handleCanvasClick(worldPos) {
+        if (!this.placementMode || !worldPos) return false;
+
+        const snapped = this.game.renderer.snapToGrid(worldPos.x, worldPos.z);
+        const half = ROOM_SIZE / 2 - OBJECT_SIZE / 2;
+
+        // Check bounds
+        if (Math.abs(snapped.x) > half || Math.abs(snapped.z) > half) {
+            this.game.log('Cannot place outside room!', 'state');
+            return false;
+        }
+
+        this.game.placeObject(this.placementMode, snapped.x, snapped.z);
+
+        // Exit placement mode
+        this.placementMode = null;
+        document.querySelectorAll('.place-btn').forEach(b => b.classList.remove('active'));
+        document.getElementById('placement-hint').style.display = 'none';
+        return true;
+    }
+
+    // Refresh the state display panel
+    updateStateDisplay(stateJSON) {
+        const container = document.getElementById('state-display');
+        const barColor = (key, val) => {
+            if (key === 'hunger') val = 100 - val;  // hunger is inverted (high = bad)
+            if (val > 60) return '#95e1d3';
+            if (val > 30) return '#f4a261';
+            return '#e94560';
+        };
+
+        container.innerHTML = Object.entries(stateJSON).map(([key, val]) => {
+            if (key === 'mood') {
+                const emoji = val === 'happy' ? '😊' : val === 'neutral' ? '😐' : '😢';
+                return `<div class="state-row"><span>Mood</span><span>${emoji} ${val}</span></div>`;
+            }
+            return `
+                <div class="state-row">
+                    <span>${key.charAt(0).toUpperCase() + key.slice(1)}</span>
+                    <div class="state-bar-bg">
+                        <div class="state-bar" style="width:${val}%;background:${barColor(key, val)}"></div>
+                    </div>
+                    <span>${val}</span>
+                </div>`;
+        }).join('');
+    }
+}
+
+// ============================================================================
+//  MODULE: Game — Main controller that ties everything together
+// ============================================================================
+class Game {
+    constructor() {
+        this.objects = [];       // WorldObject[]
+        this.agent   = null;     // Agent
+        this.renderer = null;    // Renderer
+        this.actionSystem = null;
+        this.ui = null;
+        this._clock = new THREE.Clock();
+    }
+
+    init() {
+        const container = document.getElementById('canvas-container');
+
+        // Initialize systems
+        this.renderer     = new Renderer(container);
+        this.actionSystem = new ActionSystem(this);
+        this.ui           = new UIController(this);
+
+        // Create agent at center
+        this.agent = new Agent(0, 0);
+        this.renderer.createAgentMesh(this.agent);
+
+        // Canvas click handler
+        this.renderer.renderer.domElement.addEventListener('click', (e) => {
+            const worldPos = this.renderer.screenToWorld(e.clientX, e.clientY);
+            this.ui.handleCanvasClick(worldPos);
+        });
+
+        this.log('Simulation ready. Place objects, then use actions.', 'action');
+        this._loop();
+    }
+
+    // Place a new object in the room
+    placeObject(type, x, z) {
+        const obj = new WorldObject(type, x, z);
+        this.objects.push(obj);
+        this.renderer.createObjectMesh(obj);
+        this.log(`Placed ${obj.id} at (${x}, ${z})`, 'action');
+        return obj;
+    }
+
+    // Find the first object of a given type
+    findObject(type) {
+        return this.objects.find(o => o.type === type) || null;
+    }
+
+    // Find object by exact ID
+    findObjectById(id) {
+        return this.objects.find(o => o.id === id) || null;
+    }
+
+    // Logging
+    log(message, type = '') {
+        const el = document.getElementById('activity-log');
+        const entry = document.createElement('div');
+        entry.className = `log-entry ${type}`;
+        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        entry.textContent = `[${time}] ${message}`;
+        el.appendChild(entry);
+        el.scrollTop = el.scrollHeight;
+    }
+
+    updateStatus(text) {
+        document.getElementById('status-bar').textContent = text;
+    }
+
+    // ── Main game loop ──
+    _loop() {
+        requestAnimationFrame(() => this._loop());
+
+        const dt = this._clock.getDelta();
+        const time = this._clock.getElapsedTime();
+
+        // Update agent movement
+        this.agent.updateMovement(dt);
+
+        // Passive state decay
+        this.agent.state.tick(dt / 10);  // slowed down for playability
+
+        // Update visuals
+        this.renderer.updateAgent(this.agent, time);
+        this.ui.updateStateDisplay(this.agent.state.toJSON());
+
+        // Render
+        this.renderer.render();
+    }
+}
+
+// ============================================================================
+//  BOOTSTRAP
+// ============================================================================
+const game = new Game();
+game.init();
+
+// ── Expose global API for external access (LLM integration point) ──
+// An AI system can call: game.agent.executeAction("eat")
+// Or: game.actionSystem.getAvailableActions()  → ["go_to_kitchen", "sleep", ...]
+window.simAPI = {
+    executeAction:     (name) => game.agent.executeAction(name),
+    getActions:        ()     => game.actionSystem.getAvailableActions(),
+    getState:          ()     => game.agent.state.toJSON(),
+    placeObject:       (type, x, z) => game.placeObject(type, x, z),
+    getObjects:        ()     => game.objects.map(o => ({ id: o.id, type: o.type, x: o.x, z: o.z })),
+    isAgentBusy:       ()     => game.agent.busy,
+    getCurrentAction:  ()     => game.agent.currentAction,
+};
+
+</script>
+</body>
+</html>
