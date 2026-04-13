@@ -1,0 +1,1418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D Life Simulation</title>
+<style>
+/* ================================================================
+   GLOBAL
+   ================================================================ */
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: #0a0a12;
+    color: #ccc;
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+    font-size: 13px;
+}
+
+/* ================================================================
+   PANELS
+   ================================================================ */
+.panel {
+    width: 270px;
+    background: #111120;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    padding: 10px;
+    gap: 6px;
+    flex-shrink: 0;
+    z-index: 10;
+}
+.panel::-webkit-scrollbar { width: 4px; }
+.panel::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+.panel-left  { border-right: 1px solid #1e1e35; }
+.panel-right { border-left: 1px solid #1e1e35; }
+
+.section-title {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: #e94560;
+    padding: 5px 0 3px;
+    border-bottom: 1px solid #1e1e35;
+    margin-top: 2px;
+}
+
+/* ================================================================
+   BUTTONS
+   ================================================================ */
+.btn {
+    padding: 6px 10px;
+    border: 1px solid #1e1e35;
+    background: #14142a;
+    color: #bbb;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    text-align: left;
+    transition: background 0.12s, border-color 0.12s;
+}
+.btn:hover { background: #1e1e3a; border-color: #e94560; color: #eee; }
+.btn:active { transform: scale(0.97); }
+.btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.btn.active  { background: #e94560; color: #fff; border-color: #e94560; }
+.btn-place   { border-left: 3px solid #53d8fb; }
+.btn-action  { border-left: 3px solid #e94560; }
+.btn-interact{ border-left: 3px solid #95e1d3; }
+.btn-add     { border-left: 3px solid #f4a261; }
+
+/* ================================================================
+   STATE + BARS
+   ================================================================ */
+.state-block {
+    background: #0d0d1a;
+    border: 1px solid #1e1e35;
+    border-radius: 5px;
+    padding: 7px;
+}
+.state-row {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 3px; font-size: 10px;
+}
+.state-row:last-child { margin-bottom:0; }
+.state-label { width: 55px; color: #666; }
+.bar-bg { flex:1; height:6px; background:#08080f; border-radius:3px; margin:0 5px; overflow:hidden; }
+.bar-fill { height:100%; border-radius:3px; transition: width 0.3s; }
+.state-val { width:24px; text-align:right; font-size:9px; color:#777; }
+
+/* ================================================================
+   AGENT CHIPS
+   ================================================================ */
+.agent-chip {
+    display:inline-flex; align-items:center; gap:4px;
+    padding:3px 8px; border-radius:3px; border:1px solid #1e1e35;
+    cursor:pointer; font-size:10px; margin:2px;
+}
+.agent-chip:hover { border-color:#e94560; }
+.agent-chip.selected { border-color:#e94560; background:#1e0a1a; }
+.agent-dot { width:8px; height:8px; border-radius:50%; }
+
+.interaction-arrow { text-align:center; font-size:16px; color:#e94560; padding:2px 0; }
+
+/* ================================================================
+   3D VIEWPORT
+   ================================================================ */
+#viewport {
+    flex: 1;
+    position: relative;
+    background: #060610;
+}
+#viewport canvas { display: block; }
+
+/* Floating labels layer */
+#labels-layer {
+    position: absolute; top:0; left:0; width:100%; height:100%;
+    pointer-events: none; overflow: hidden;
+}
+.label-3d {
+    position: absolute;
+    font-size: 10px;
+    font-weight: 600;
+    color: #fff;
+    text-align: center;
+    text-shadow: 0 0 6px rgba(0,0,0,0.9);
+    white-space: nowrap;
+    transform: translate(-50%, -100%);
+    pointer-events: none;
+}
+.label-3d .action-tag {
+    display: block;
+    font-size: 8px;
+    font-weight: 400;
+    color: #53d8fb;
+}
+.label-3d .mood-tag {
+    font-size: 11px;
+}
+
+/* HUD */
+#hud {
+    position:absolute; top:10px; left:10px;
+    background:rgba(14,14,28,0.88);
+    padding:6px 12px; border-radius:5px;
+    font-size:11px; border:1px solid #1e1e35;
+    pointer-events:none; z-index:5;
+}
+#placement-hint {
+    position:absolute; bottom:12px; left:50%; transform:translateX(-50%);
+    background:rgba(233,69,96,0.85);
+    padding:6px 18px; border-radius:5px; font-size:12px;
+    display:none; pointer-events:none; z-index:5;
+}
+
+/* ================================================================
+   LOG
+   ================================================================ */
+#log-wrap { flex:1; min-height:0; display:flex; flex-direction:column; }
+#log {
+    flex:1; overflow-y:auto; font-size:9px;
+    background:#08080f; border:1px solid #1e1e35;
+    border-radius:4px; padding:5px; line-height:1.5;
+}
+#log .l { color:#444; }
+#log .l.act { color:#53d8fb; }
+#log .l.warn { color:#f4a261; }
+#log .l.int { color:#95e1d3; }
+</style>
+
+<!-- Three.js import map -->
+<script type="importmap">
+{
+    "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+    }
+}
+</script>
+</head>
+<body>
+
+<!-- ── LEFT PANEL ── -->
+<div class="panel panel-left">
+    <div class="section-title">Place Objects</div>
+    <button class="btn btn-place" data-place="kitchen">&#x1F373; Kitchen</button>
+    <button class="btn btn-place" data-place="bed">&#x1F6CF; Bed</button>
+    <button class="btn btn-place" data-place="bathroom">&#x1F6BF; Bathroom</button>
+
+    <div class="section-title">Agents</div>
+    <button class="btn btn-add" id="btn-add-agent">+ Add Agent</button>
+    <div id="agent-select-left"></div>
+
+    <div class="section-title">Manual Actions</div>
+    <div id="action-buttons"></div>
+
+    <div class="section-title">Selected Agent</div>
+    <div id="state-display" class="state-block" style="color:#555;">No agent selected</div>
+
+    <div id="log-wrap">
+        <div class="section-title">Log</div>
+        <div id="log"></div>
+    </div>
+</div>
+
+<!-- ── 3D VIEWPORT ── -->
+<div id="viewport">
+    <div id="labels-layer"></div>
+    <div id="hud">Click an agent to select</div>
+    <div id="placement-hint">Click on the floor to place</div>
+</div>
+
+<!-- ── RIGHT PANEL ── -->
+<div class="panel panel-right">
+    <div class="section-title">Interactions</div>
+    <p style="font-size:10px;color:#555;">Select Agent A then Agent B</p>
+
+    <div class="section-title" style="font-size:9px;">Agent A (actor)</div>
+    <div id="interact-a-chips"></div>
+    <div class="interaction-arrow">&darr;</div>
+    <div class="section-title" style="font-size:9px;margin-top:0;">Agent B (target)</div>
+    <div id="interact-b-chips"></div>
+
+    <div class="section-title">Actions</div>
+    <div id="interact-buttons"></div>
+
+    <div class="section-title">Relationship</div>
+    <div id="relationship-display" class="state-block" style="font-size:10px;color:#555;">Select two agents</div>
+
+    <div class="section-title">Agent B State</div>
+    <div id="target-state-display" class="state-block" style="font-size:10px;color:#555;">&mdash;</div>
+</div>
+
+<!-- ================================================================
+     ENGINE + 3D RENDERER
+     ================================================================ -->
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ================================================================
+//  CONSTANTS
+// ================================================================
+// Simulation runs in a logical 2D grid. The 3D renderer maps it.
+const SIM_W  = 20;    // simulation room width  (units)
+const SIM_H  = 15;    // simulation room depth  (units)
+const MOVE_SPEED   = 3.0;    // units/sec
+const PROXIMITY    = 2.0;    // interaction distance (3D units)
+const AUTO_TICK_MIN = 4000;
+const AUTO_TICK_MAX = 6000;
+const WANDER_IDLE   = 5000;
+
+const AGENT_COLORS = [
+    0xe94560, 0x2ecc71, 0x3498db, 0xf1c40f, 0x9b59b6,
+    0xe67e22, 0x1abc9c, 0xe74c3c, 0x00cec9, 0xfd79a8
+];
+const AGENT_COLOR_CSS = [
+    '#e94560','#2ecc71','#3498db','#f1c40f','#9b59b6',
+    '#e67e22','#1abc9c','#e74c3c','#00cec9','#fd79a8'
+];
+
+// ================================================================
+//  UTILITIES
+// ================================================================
+const clamp   = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const dist3   = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+const randR   = (lo, hi) => lo + Math.random() * (hi - lo);
+const randI   = (lo, hi) => Math.floor(randR(lo, hi + 1));
+const pick    = arr => arr[Math.floor(Math.random() * arr.length)];
+
+// ================================================================
+//  MODULE: WorldObject
+// ================================================================
+class WorldObject {
+    static _c = {};
+    constructor(type, x, z) {
+        WorldObject._c[type] = (WorldObject._c[type] || 0) + 1;
+        this.id   = `${type}_${WorldObject._c[type]}`;
+        this.type = type;
+        this.x = x;  this.z = z;
+        this.mesh = null;  // set by SceneManager
+    }
+    // Where agent walks to interact
+    get interactionPoint() { return { x: this.x, z: this.z + 1.8 }; }
+}
+
+// ================================================================
+//  MODULE: Personality
+// ================================================================
+class Personality {
+    constructor(o = {}) {
+        this.socialness = o.socialness ?? randI(20, 80);
+        this.aggression = o.aggression ?? randI(10, 60);
+        this.laziness   = o.laziness   ?? randI(10, 70);
+        this.curiosity  = o.curiosity  ?? randI(20, 80);
+    }
+    toJSON() { return { socialness:this.socialness, aggression:this.aggression, laziness:this.laziness, curiosity:this.curiosity }; }
+}
+
+// ================================================================
+//  MODULE: StateSystem
+// ================================================================
+class StateSystem {
+    constructor() {
+        this.energy  = randR(60, 90);
+        this.hunger  = randR(10, 40);
+        this.hygiene = randR(60, 90);
+        this.comfort = randR(50, 80);
+        this.mood    = 100;
+    }
+    modify(c) { for (const [k,v] of Object.entries(c)) if (k in this) this[k] += v; this._cl(); this._dm(); }
+    tick(dt) {
+        this.energy -= 0.6*dt; this.hunger += 0.5*dt;
+        this.hygiene -= 0.3*dt; this.comfort -= 0.2*dt;
+        this._cl(); this._dm();
+    }
+    _cl() {
+        this.energy=clamp(this.energy,0,100); this.hunger=clamp(this.hunger,0,100);
+        this.hygiene=clamp(this.hygiene,0,100); this.comfort=clamp(this.comfort,0,100);
+        this.mood=clamp(this.mood,0,100);
+    }
+    _dm() { this.mood = clamp(0.35*this.energy + 0.30*(100-this.hunger) + 0.15*this.hygiene + 0.20*this.comfort, 0, 100); }
+    get moodLabel() { return this.mood>75?'happy':this.mood>50?'fine':this.mood>30?'sad':'miserable'; }
+    toJSON() {
+        return { energy:Math.round(this.energy), hunger:Math.round(this.hunger),
+                 hygiene:Math.round(this.hygiene), comfort:Math.round(this.comfort),
+                 mood:Math.round(this.mood), moodLabel:this.moodLabel };
+    }
+}
+
+// ================================================================
+//  MODULE: RelationshipMap
+// ================================================================
+class RelationshipMap {
+    constructor() { this._s = {}; }
+    _k(a,b) { return a+'::'+b; }
+    get(a,b) { return this._s[this._k(a,b)] ?? 50; }
+    modify(a,b,d) { const k=this._k(a,b); this._s[k]=clamp((this._s[k]??50)+d,0,100); }
+    modifyBoth(a,b,d) { this.modify(a,b,d); this.modify(b,a,d); }
+}
+
+// ================================================================
+//  MODULE: Agent
+// ================================================================
+class Agent {
+    static _n = 0;
+    constructor(x, z) {
+        Agent._n++;
+        this.id    = `agent_${Agent._n}`;
+        this.label = `Agent ${Agent._n}`;
+        this.colorHex = AGENT_COLORS[(Agent._n - 1) % AGENT_COLORS.length];
+        this.colorCSS = AGENT_COLOR_CSS[(Agent._n - 1) % AGENT_COLOR_CSS.length];
+
+        this.x = x;  this.z = z;
+        this.targetX = x; this.targetZ = z;
+        this.facing = 0;
+
+        this.state      = new StateSystem();
+        this.personality = new Personality();
+
+        this.busy          = false;
+        this.currentAction = null;
+        this._moveResolve  = null;
+
+        this._lastActionTime = performance.now();
+        this._autoInterval   = randR(AUTO_TICK_MIN, AUTO_TICK_MAX);
+        this._lastIdleStart  = performance.now();
+        this._isAutonomous   = true;
+
+        // 3D references (set by SceneManager)
+        this.mesh  = null;
+        this.labelEl = null;
+    }
+
+    get isMoving() { return Math.hypot(this.targetX-this.x, this.targetZ-this.z) > 0.05; }
+
+    moveTo(x, z) {
+        this.targetX = clamp(x, -SIM_W/2+0.5, SIM_W/2-0.5);
+        this.targetZ = clamp(z, -SIM_H/2+0.5, SIM_H/2-0.5);
+        return new Promise(resolve => {
+            if (!this.isMoving) { resolve(); return; }
+            this._moveResolve = resolve;
+        });
+    }
+
+    updateMovement(dt) {
+        if (!this.isMoving) {
+            if (this._moveResolve) { const r=this._moveResolve; this._moveResolve=null; r(); }
+            return;
+        }
+        const dx = this.targetX - this.x;
+        const dz = this.targetZ - this.z;
+        const d  = Math.hypot(dx, dz);
+        const step = Math.min(MOVE_SPEED * dt, d);
+        this.x += (dx/d) * step;
+        this.z += (dz/d) * step;
+        this.facing = Math.atan2(dx, dz);
+    }
+
+    async executeAction(name, ctx) {
+        if (this.busy) return false;
+        return game.actionSystem.execute(name, this, ctx);
+    }
+    async performAction(n, c) { return this.executeAction(n, c); }
+    async decideNextAction(context) { return null; }
+}
+
+// ================================================================
+//  MODULE: ActionSystem
+// ================================================================
+class ActionSystem {
+    constructor(g) { this.game = g; this.actions = {}; }
+    register(n, d) { this.actions[n] = d; }
+    getAvailableActions() { return Object.keys(this.actions); }
+    async execute(name, agent, ctx) {
+        const a = this.actions[name];
+        if (!a) { this.game.log(`Unknown: ${name}`, 'warn'); return false; }
+        agent.busy = true;
+        agent.currentAction = name;
+        agent._lastActionTime = performance.now();
+        this.game.log(`${agent.label}: ${name}`, 'act');
+        try { await a.fn(agent, this.game, ctx); }
+        catch(e) { this.game.log(`Error: ${e.message}`, 'warn'); }
+        agent.busy = false;
+        agent.currentAction = null;
+        agent._lastActionTime = performance.now();
+        agent._lastIdleStart  = performance.now();
+        return true;
+    }
+}
+
+// ================================================================
+//  MODULE: InteractionSystem
+// ================================================================
+class InteractionSystem {
+    constructor(g) { this.game = g; this.interactions = {}; this._init(); }
+    register(n,d) { this.interactions[n]=d; }
+    getAvailableInteractions() { return Object.keys(this.interactions); }
+
+    async execute(name, actor, target) {
+        const int = this.interactions[name];
+        if (!int) return false;
+        if (actor.busy) { this.game.log(`${actor.label} busy`, 'warn'); return false; }
+        actor.busy = true;
+        actor.currentAction = `${name} → ${target.label}`;
+        this.game.log(`${actor.label} → ${target.label}: ${name}`, 'int');
+        // Approach if needed
+        if (dist3(actor, target) > PROXIMITY) {
+            const ang = Math.atan2(target.x-actor.x, target.z-actor.z);
+            await actor.moveTo(target.x - Math.sin(ang)*PROXIMITY*0.6, target.z - Math.cos(ang)*PROXIMITY*0.6);
+        }
+        try { await int.fn(actor, target, this.game); }
+        catch(e) { this.game.log(`Error: ${e.message}`, 'warn'); }
+        actor.busy = false;
+        actor.currentAction = null;
+        actor._lastActionTime = performance.now();
+        actor._lastIdleStart  = performance.now();
+        return true;
+    }
+
+    _init() {
+        const wait = ms => new Promise(r => setTimeout(r, ms));
+        const rel = () => this.game.relationships;
+
+        this.register('greet', { fn: async (a,b,g) => {
+            await wait(800);
+            rel().modifyBoth(a.id,b.id,3);
+            a.state.modify({comfort:5}); b.state.modify({comfort:3});
+            g.log(`${a.label} waved at ${b.label}`, 'int');
+        }});
+        this.register('talk', { fn: async (a,b,g) => {
+            await wait(1500);
+            const bonus = (a.personality.socialness+b.personality.socialness)/200*5;
+            rel().modifyBoth(a.id,b.id,4+bonus);
+            a.state.modify({comfort:6}); b.state.modify({comfort:6});
+            g.log(`${a.label} and ${b.label} chatted`, 'int');
+        }});
+        this.register('compliment', { fn: async (a,b,g) => {
+            await wait(800);
+            rel().modify(b.id,a.id,8);
+            b.state.modify({comfort:10}); a.state.modify({comfort:3});
+            g.log(`${a.label} complimented ${b.label}`, 'int');
+        }});
+        this.register('insult', { fn: async (a,b,g) => {
+            await wait(600);
+            rel().modify(b.id,a.id,-12); rel().modify(a.id,b.id,-4);
+            b.state.modify({comfort:-15});
+            g.log(`${a.label} insulted ${b.label}!`, 'warn');
+        }});
+        this.register('encourage', { fn: async (a,b,g) => {
+            await wait(1000);
+            rel().modify(b.id,a.id,6);
+            b.state.modify({comfort:8, energy:5});
+            g.log(`${a.label} encouraged ${b.label}`, 'int');
+        }});
+        this.register('invite_to_eat', { fn: async (a,b,g) => {
+            const k = g.findObject('kitchen');
+            if (!k) { g.log('No kitchen!','warn'); return; }
+            const pt = k.interactionPoint;
+            g.log(`${a.label} invited ${b.label} to eat`,'int');
+            await Promise.all([ a.moveTo(pt.x-0.8, pt.z), b.moveTo(pt.x+0.8, pt.z) ]);
+            await wait(1500);
+            a.state.modify({hunger:-25, comfort:8}); b.state.modify({hunger:-25, comfort:8});
+            rel().modifyBoth(a.id,b.id,5);
+            g.log(`${a.label} and ${b.label} ate together`,'int');
+        }});
+        this.register('complain', { fn: async (a,b,g) => {
+            await wait(1000);
+            rel().modify(b.id,a.id,-3);
+            a.state.modify({comfort:4}); b.state.modify({comfort:-5});
+            g.log(`${a.label} complained to ${b.label}`,'int');
+        }});
+    }
+}
+
+// ================================================================
+//  MODULE: AutonomySystem — pure rule-based, NO AI
+// ================================================================
+class AutonomySystem {
+    constructor(g) { this.game = g; }
+
+    update(agent, now) {
+        if (agent.busy || !agent._isAutonomous) return;
+        const elapsed = now - agent._lastActionTime;
+        if (elapsed < agent._autoInterval) {
+            if (now - agent._lastIdleStart > WANDER_IDLE && !agent.isMoving) {
+                agent.moveTo(agent.x + randR(-2,2), agent.z + randR(-2,2));
+                agent._lastIdleStart = now;
+            }
+            return;
+        }
+        agent._autoInterval = randR(AUTO_TICK_MIN, AUTO_TICK_MAX);
+        const action = this._decide(agent);
+        if (action) agent.executeAction(action);
+    }
+
+    _decide(agent) {
+        const s = agent.state, p = agent.personality;
+        if (s.energy < 20)  return 'sleep';
+        if (s.hunger > 75)  return 'eat';
+        if (s.hygiene < 25) return 'use_toilet';
+        if (s.energy < 45 && p.laziness > 50) return 'sleep';
+        if (s.hunger > 50) return 'eat';
+        if (s.hygiene < 45) return 'use_toilet';
+
+        if (p.socialness > 40 && Math.random() < p.socialness/150) {
+            const near = this.game.agents.find(o => o !== agent && !o.busy && dist3(agent,o) < PROXIMITY*3);
+            if (near) { this._autoInteract(agent, near); return null; }
+        }
+        if (p.curiosity > 50 && Math.random() < 0.5) return 'wander';
+        return Math.random() < 0.6 ? 'wander' : 'idle';
+    }
+
+    _autoInteract(actor, target) {
+        const p = actor.personality;
+        const r = this.game.relationships.get(actor.id, target.id);
+        let ch;
+        if (p.aggression > 60 && r < 30) ch = ['insult','complain'];
+        else if (p.socialness > 60) ch = ['talk','compliment','greet','encourage'];
+        else ch = ['greet','talk'];
+        this.game.interactionSystem.execute(pick(ch), actor, target);
+    }
+}
+
+// ================================================================
+//  MODULE: SceneManager — Three.js 3D renderer
+// ================================================================
+class SceneManager {
+    constructor(container) {
+        this.container = container;
+        this.labelsLayer = document.getElementById('labels-layer');
+
+        // ── Scene ──
+        this.scene = new THREE.Scene();
+        this.scene.fog = new THREE.FogExp2(0x060610, 0.035);
+
+        // ── Camera ──
+        const aspect = container.clientWidth / container.clientHeight;
+        this.camera = new THREE.PerspectiveCamera(50, aspect, 0.1, 200);
+        this.camera.position.set(0, 18, 14);
+        this.camera.lookAt(0, 0, 0);
+
+        // ── Renderer ──
+        this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+        this.renderer.setSize(container.clientWidth, container.clientHeight);
+        this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+        this.renderer.shadowMap.enabled = true;
+        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        this.renderer.toneMappingExposure = 1.1;
+        container.insertBefore(this.renderer.domElement, container.firstChild);
+
+        // ── Controls ──
+        this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+        this.controls.enableDamping = true;
+        this.controls.dampingFactor = 0.08;
+        this.controls.maxPolarAngle = Math.PI / 2.15;
+        this.controls.minDistance = 5;
+        this.controls.maxDistance = 40;
+        this.controls.target.set(0, 0, 0);
+
+        // ── Raycasting ──
+        this.raycaster = new THREE.Raycaster();
+        this.mouseNDC  = new THREE.Vector2();
+        this.floorMesh = null;
+
+        // ── Placement ghost ──
+        this.ghostMesh = null;
+
+        this._buildEnvironment();
+        window.addEventListener('resize', () => this._onResize());
+    }
+
+    // ────────────────────────────────────────────────────
+    //  ENVIRONMENT
+    // ────────────────────────────────────────────────────
+    _buildEnvironment() {
+        // Floor
+        const floorGeo = new THREE.PlaneGeometry(SIM_W, SIM_H);
+        const floorMat = new THREE.MeshStandardMaterial({
+            color: 0x12122a,
+            roughness: 0.85,
+            metalness: 0.15
+        });
+        this.floorMesh = new THREE.Mesh(floorGeo, floorMat);
+        this.floorMesh.rotation.x = -Math.PI / 2;
+        this.floorMesh.receiveShadow = true;
+        this.scene.add(this.floorMesh);
+
+        // Grid
+        const grid = new THREE.GridHelper(Math.max(SIM_W, SIM_H), Math.max(SIM_W, SIM_H), 0x1a1a40, 0x141430);
+        grid.position.y = 0.005;
+        // Clip grid to room bounds visually via a plane — simpler: just add it
+        this.scene.add(grid);
+
+        // Walls (thin translucent panels)
+        const wallH = 3, wallMat = new THREE.MeshStandardMaterial({
+            color: 0x2a2a50, transparent: true, opacity: 0.18,
+            roughness: 0.5, metalness: 0.3, side: THREE.DoubleSide
+        });
+        const wallEdge = new THREE.MeshBasicMaterial({ color: 0x3a3a6a, wireframe: true });
+        const hw = SIM_W/2, hh = SIM_H/2;
+        const wallDefs = [
+            { w: SIM_W, x: 0, z: -hh, ry: 0 },
+            { w: SIM_W, x: 0, z:  hh, ry: 0 },
+            { w: SIM_H, x: -hw, z: 0, ry: Math.PI/2 },
+            { w: SIM_H, x:  hw, z: 0, ry: Math.PI/2 },
+        ];
+        wallDefs.forEach(def => {
+            const geo = new THREE.PlaneGeometry(def.w, wallH);
+            const mesh = new THREE.Mesh(geo, wallMat);
+            mesh.position.set(def.x, wallH/2, def.z);
+            mesh.rotation.y = def.ry;
+            this.scene.add(mesh);
+            // Edge wireframe
+            const edge = new THREE.Mesh(geo, wallEdge);
+            edge.position.copy(mesh.position);
+            edge.rotation.copy(mesh.rotation);
+            this.scene.add(edge);
+        });
+
+        // Floor border glow line
+        const borderGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(SIM_W, 0.02, SIM_H));
+        const borderMat = new THREE.LineBasicMaterial({ color: 0x3a3a7a });
+        const borderLine = new THREE.LineSegments(borderGeo, borderMat);
+        borderLine.position.y = 0.01;
+        this.scene.add(borderLine);
+
+        // ── Lighting ──
+        // Ambient
+        this.scene.add(new THREE.AmbientLight(0x404060, 0.6));
+
+        // Main directional (sun-like, casts shadows)
+        const dirLight = new THREE.DirectionalLight(0xddeeff, 1.2);
+        dirLight.position.set(8, 15, 6);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.set(1024, 1024);
+        dirLight.shadow.camera.left = -12;
+        dirLight.shadow.camera.right = 12;
+        dirLight.shadow.camera.top = 12;
+        dirLight.shadow.camera.bottom = -12;
+        dirLight.shadow.camera.near = 1;
+        dirLight.shadow.camera.far = 30;
+        dirLight.shadow.bias = -0.002;
+        this.scene.add(dirLight);
+
+        // Fill light from opposite side
+        const fillLight = new THREE.DirectionalLight(0x6688cc, 0.4);
+        fillLight.position.set(-6, 8, -4);
+        this.scene.add(fillLight);
+
+        // Point light (futuristic glow from above center)
+        const pointLight = new THREE.PointLight(0x53d8fb, 0.6, 25);
+        pointLight.position.set(0, 6, 0);
+        this.scene.add(pointLight);
+
+        // Hemisphere for ambient color variation
+        this.scene.add(new THREE.HemisphereLight(0x334466, 0x0a0a1a, 0.4));
+    }
+
+    // ────────────────────────────────────────────────────
+    //  OBJECT MESHES
+    // ────────────────────────────────────────────────────
+    createObjectMesh(obj) {
+        const defs = {
+            kitchen:  { color: 0xf4a261, w: 1.8, h: 1.0, d: 1.2, emissive: 0x3a2000 },
+            bed:      { color: 0x7ec8e3, w: 2.2, h: 0.6, d: 1.4, emissive: 0x0a2030 },
+            bathroom: { color: 0xaabbbb, w: 1.6, h: 1.2, d: 1.2, emissive: 0x1a2a2a },
+        };
+        const def = defs[obj.type] || { color: 0x888888, w:1, h:1, d:1, emissive: 0x000000 };
+
+        const group = new THREE.Group();
+
+        // Main body
+        const geo = new THREE.BoxGeometry(def.w, def.h, def.d);
+        const mat = new THREE.MeshStandardMaterial({
+            color: def.color,
+            roughness: 0.6,
+            metalness: 0.2,
+            emissive: def.emissive,
+            emissiveIntensity: 0.3
+        });
+        const body = new THREE.Mesh(geo, mat);
+        body.position.y = def.h / 2;
+        body.castShadow = true;
+        body.receiveShadow = true;
+        group.add(body);
+
+        // Edge wireframe
+        const edgeGeo = new THREE.EdgesGeometry(geo);
+        const edgeMat = new THREE.LineBasicMaterial({ color: def.color, transparent: true, opacity: 0.5 });
+        const edges = new THREE.LineSegments(edgeGeo, edgeMat);
+        edges.position.y = def.h / 2;
+        group.add(edges);
+
+        // Top accent strip
+        const accentGeo = new THREE.BoxGeometry(def.w * 0.6, 0.05, def.d * 0.6);
+        const accentMat = new THREE.MeshBasicMaterial({ color: def.color });
+        const accent = new THREE.Mesh(accentGeo, accentMat);
+        accent.position.y = def.h + 0.03;
+        group.add(accent);
+
+        // Floating label
+        const labelEl = document.createElement('div');
+        labelEl.className = 'label-3d';
+        labelEl.style.color = '#' + def.color.toString(16).padStart(6, '0');
+        labelEl.textContent = obj.id;
+        this.labelsLayer.appendChild(labelEl);
+
+        group.position.set(obj.x, 0, obj.z);
+        group.userData = { worldObj: obj, labelEl, type: 'object' };
+        this.scene.add(group);
+        obj.mesh = group;
+        return group;
+    }
+
+    // ────────────────────────────────────────────────────
+    //  AGENT MESHES
+    // ────────────────────────────────────────────────────
+    createAgentMesh(agent) {
+        const group = new THREE.Group();
+
+        // Body sphere
+        const sphereGeo = new THREE.SphereGeometry(0.4, 24, 18);
+        const sphereMat = new THREE.MeshStandardMaterial({
+            color: agent.colorHex,
+            roughness: 0.3,
+            metalness: 0.4,
+            emissive: agent.colorHex,
+            emissiveIntensity: 0.15
+        });
+        const sphere = new THREE.Mesh(sphereGeo, sphereMat);
+        sphere.position.y = 0.5;
+        sphere.castShadow = true;
+        group.add(sphere);
+
+        // Inner glow sphere
+        const glowGeo = new THREE.SphereGeometry(0.48, 16, 12);
+        const glowMat = new THREE.MeshBasicMaterial({
+            color: agent.colorHex,
+            transparent: true,
+            opacity: 0.08
+        });
+        const glow = new THREE.Mesh(glowGeo, glowMat);
+        glow.position.y = 0.5;
+        group.add(glow);
+
+        // Direction indicator (small cone)
+        const coneGeo = new THREE.ConeGeometry(0.12, 0.3, 6);
+        const coneMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const cone = new THREE.Mesh(coneGeo, coneMat);
+        cone.rotation.x = Math.PI / 2;
+        cone.position.set(0, 0.5, 0.55);
+        group.add(cone);
+        group.userData.dirCone = cone;
+
+        // Ground ring (selection indicator)
+        const ringGeo = new THREE.RingGeometry(0.5, 0.58, 32);
+        const ringMat = new THREE.MeshBasicMaterial({
+            color: 0xe94560, transparent: true, opacity: 0, side: THREE.DoubleSide
+        });
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.y = 0.02;
+        group.add(ring);
+        group.userData.ring = ring;
+
+        // Busy pulse ring
+        const busyGeo = new THREE.RingGeometry(0.6, 0.65, 32);
+        const busyMat = new THREE.MeshBasicMaterial({
+            color: 0x53d8fb, transparent: true, opacity: 0, side: THREE.DoubleSide
+        });
+        const busyRing = new THREE.Mesh(busyGeo, busyMat);
+        busyRing.rotation.x = -Math.PI / 2;
+        busyRing.position.y = 0.015;
+        group.add(busyRing);
+        group.userData.busyRing = busyRing;
+
+        // Ground shadow disc
+        const shadowGeo = new THREE.CircleGeometry(0.45, 16);
+        const shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.25 });
+        const shadow = new THREE.Mesh(shadowGeo, shadowMat);
+        shadow.rotation.x = -Math.PI / 2;
+        shadow.position.y = 0.005;
+        group.add(shadow);
+
+        // Floating HTML label
+        const labelEl = document.createElement('div');
+        labelEl.className = 'label-3d';
+        labelEl.innerHTML = `<span style="color:${agent.colorCSS}">${agent.label}</span>`;
+        this.labelsLayer.appendChild(labelEl);
+
+        group.position.set(agent.x, 0, agent.z);
+        group.userData.agent = agent;
+        group.userData.labelEl = labelEl;
+        group.userData.sphere = sphere;
+        group.userData.glow = glow;
+        group.userData.type = 'agent';
+        this.scene.add(group);
+        agent.mesh = group;
+        agent.labelEl = labelEl;
+        return group;
+    }
+
+    // ────────────────────────────────────────────────────
+    //  PER-FRAME UPDATES
+    // ────────────────────────────────────────────────────
+    updateAgent(agent, time) {
+        const g = agent.mesh;
+        if (!g) return;
+
+        // Position
+        g.position.x = agent.x;
+        g.position.z = agent.z;
+
+        // Bobbing
+        const bob = agent.isMoving ? Math.sin(time * 10) * 0.06 : Math.sin(time * 2) * 0.015;
+        g.userData.sphere.position.y = 0.5 + bob;
+        g.userData.glow.position.y   = 0.5 + bob;
+
+        // Direction cone rotation
+        if (agent.isMoving) {
+            g.userData.dirCone.position.x = Math.sin(agent.facing) * 0.55;
+            g.userData.dirCone.position.z = Math.cos(agent.facing) * 0.55;
+            g.userData.dirCone.position.y = 0.5 + bob;
+            g.userData.dirCone.rotation.y = -agent.facing;
+        }
+
+        // Selection ring
+        const isSelected = game.selectedAgent === agent;
+        g.userData.ring.material.opacity = isSelected ? 0.6 + 0.2 * Math.sin(time * 4) : 0;
+
+        // Busy ring
+        g.userData.busyRing.material.opacity = agent.busy ? 0.4 + 0.3 * Math.sin(time * 6) : 0;
+        if (agent.busy) g.userData.busyRing.rotation.z = time * 1.5;
+
+        // Floating label
+        this._updateLabel(agent.labelEl, g.position.x, 1.3, g.position.z, agent);
+    }
+
+    updateObjectLabel(obj) {
+        if (!obj.mesh) return;
+        const d = obj.mesh.userData;
+        if (d.labelEl) {
+            const pos = obj.mesh.position;
+            this._projectLabel(d.labelEl, pos.x, 1.8, pos.z);
+        }
+    }
+
+    _updateLabel(el, wx, wy, wz, agent) {
+        const pos = new THREE.Vector3(wx, wy, wz);
+        pos.project(this.camera);
+        const hw = this.container.clientWidth / 2;
+        const hh = this.container.clientHeight / 2;
+        const sx = pos.x * hw + hw;
+        const sy = -pos.y * hh + hh;
+
+        if (pos.z > 1) { el.style.display = 'none'; return; }
+        el.style.display = '';
+        el.style.left = sx + 'px';
+        el.style.top  = sy + 'px';
+
+        // Update content
+        const moods = { happy:'\u{1F60A}', fine:'\u{1F610}', sad:'\u{1F622}', miserable:'\u{1F62D}' };
+        let html = `<span style="color:${agent.colorCSS}">${agent.label}</span> <span class="mood-tag">${moods[agent.state.moodLabel]||''}</span>`;
+        if (agent.currentAction) {
+            html += `<span class="action-tag">${agent.currentAction}</span>`;
+        }
+        el.innerHTML = html;
+    }
+
+    _projectLabel(el, wx, wy, wz) {
+        const pos = new THREE.Vector3(wx, wy, wz);
+        pos.project(this.camera);
+        const hw = this.container.clientWidth / 2;
+        const hh = this.container.clientHeight / 2;
+        const sx = pos.x * hw + hw;
+        const sy = -pos.y * hh + hh;
+        if (pos.z > 1) { el.style.display = 'none'; return; }
+        el.style.display = '';
+        el.style.left = sx + 'px';
+        el.style.top  = sy + 'px';
+    }
+
+    // ────────────────────────────────────────────────────
+    //  RAYCASTING
+    // ────────────────────────────────────────────────────
+    raycastFloor(event) {
+        const rect = this.renderer.domElement.getBoundingClientRect();
+        this.mouseNDC.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        this.mouseNDC.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+        this.raycaster.setFromCamera(this.mouseNDC, this.camera);
+        const hits = this.raycaster.intersectObject(this.floorMesh);
+        if (hits.length > 0) return { x: hits[0].point.x, z: hits[0].point.z };
+        return null;
+    }
+
+    raycastAgents(event, agents) {
+        const rect = this.renderer.domElement.getBoundingClientRect();
+        this.mouseNDC.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        this.mouseNDC.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+        this.raycaster.setFromCamera(this.mouseNDC, this.camera);
+        // Collect all agent sphere meshes
+        const meshes = agents.map(a => a.mesh).filter(Boolean);
+        const hits = this.raycaster.intersectObjects(meshes, true);
+        if (hits.length > 0) {
+            // Walk up to find the group
+            let obj = hits[0].object;
+            while (obj.parent && !obj.userData.agent) obj = obj.parent;
+            if (obj.userData.agent) return obj.userData.agent;
+        }
+        return null;
+    }
+
+    // ────────────────────────────────────────────────────
+    //  PROXIMITY LINES
+    // ────────────────────────────────────────────────────
+    _proximityLines = [];
+    updateProximityLines(agents) {
+        // Remove old lines
+        this._proximityLines.forEach(l => this.scene.remove(l));
+        this._proximityLines = [];
+
+        for (let i = 0; i < agents.length; i++) {
+            for (let j = i + 1; j < agents.length; j++) {
+                const a = agents[i], b = agents[j];
+                if (dist3(a, b) < PROXIMITY) {
+                    const geo = new THREE.BufferGeometry().setFromPoints([
+                        new THREE.Vector3(a.x, 0.1, a.z),
+                        new THREE.Vector3(b.x, 0.1, b.z)
+                    ]);
+                    const mat = new THREE.LineDashedMaterial({
+                        color: 0x95e1d3,
+                        transparent: true,
+                        opacity: 0.35,
+                        dashSize: 0.15,
+                        gapSize: 0.1
+                    });
+                    const line = new THREE.Line(geo, mat);
+                    line.computeLineDistances();
+                    this.scene.add(line);
+                    this._proximityLines.push(line);
+                }
+            }
+        }
+    }
+
+    // ────────────────────────────────────────────────────
+    //  GHOST (placement preview)
+    // ────────────────────────────────────────────────────
+    showGhost(type, x, z) {
+        this.removeGhost();
+        const colors = { kitchen: 0xf4a261, bed: 0x7ec8e3, bathroom: 0xaabbbb };
+        const geo = new THREE.BoxGeometry(1.5, 0.8, 1.2);
+        const mat = new THREE.MeshBasicMaterial({ color: colors[type]||0x888, transparent: true, opacity: 0.3, wireframe: true });
+        this.ghostMesh = new THREE.Mesh(geo, mat);
+        this.ghostMesh.position.set(x, 0.4, z);
+        this.scene.add(this.ghostMesh);
+    }
+
+    moveGhost(x, z) {
+        if (this.ghostMesh) {
+            // Snap to 1-unit grid
+            this.ghostMesh.position.x = Math.round(x);
+            this.ghostMesh.position.z = Math.round(z);
+        }
+    }
+
+    removeGhost() {
+        if (this.ghostMesh) {
+            this.scene.remove(this.ghostMesh);
+            this.ghostMesh.geometry.dispose();
+            this.ghostMesh.material.dispose();
+            this.ghostMesh = null;
+        }
+    }
+
+    // ────────────────────────────────────────────────────
+    //  RENDER / RESIZE
+    // ────────────────────────────────────────────────────
+    render() {
+        this.controls.update();
+        this.renderer.render(this.scene, this.camera);
+    }
+
+    _onResize() {
+        const w = this.container.clientWidth, h = this.container.clientHeight;
+        this.camera.aspect = w / h;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(w, h);
+    }
+}
+
+// ================================================================
+//  MODULE: UIController
+// ================================================================
+class UIController {
+    constructor(game) {
+        this.game = game;
+        this.placementMode = null;
+        this.interactA = null;
+        this.interactB = null;
+        this._bindPlacement();
+        this._bindAddAgent();
+        this._bindCanvas();
+        this._buildActionButtons();
+        this._buildInteractionButtons();
+    }
+
+    _bindPlacement() {
+        document.querySelectorAll('.btn-place').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const type = btn.dataset.place;
+                if (this.placementMode === type) {
+                    this.placementMode = null;
+                    btn.classList.remove('active');
+                    document.getElementById('placement-hint').style.display = 'none';
+                    this.game.sceneManager.removeGhost();
+                } else {
+                    document.querySelectorAll('.btn-place').forEach(b => b.classList.remove('active'));
+                    this.placementMode = type;
+                    btn.classList.add('active');
+                    document.getElementById('placement-hint').style.display = 'block';
+                }
+            });
+        });
+    }
+
+    _bindAddAgent() {
+        document.getElementById('btn-add-agent').addEventListener('click', () => {
+            this.game.addAgent();
+            this.refreshAgentChips();
+        });
+    }
+
+    _bindCanvas() {
+        const dom = this.game.sceneManager.renderer.domElement;
+
+        // Mousemove for ghost preview
+        dom.addEventListener('mousemove', e => {
+            if (!this.placementMode) return;
+            const hit = this.game.sceneManager.raycastFloor(e);
+            if (hit) {
+                if (!this.game.sceneManager.ghostMesh)
+                    this.game.sceneManager.showGhost(this.placementMode, hit.x, hit.z);
+                this.game.sceneManager.moveGhost(hit.x, hit.z);
+            }
+        });
+
+        dom.addEventListener('click', e => {
+            // Placement?
+            if (this.placementMode) {
+                const hit = this.game.sceneManager.raycastFloor(e);
+                if (hit) {
+                    const sx = Math.round(hit.x), sz = Math.round(hit.z);
+                    if (Math.abs(sx) > SIM_W/2-1.5 || Math.abs(sz) > SIM_H/2-1.5) {
+                        this.game.log('Outside room bounds', 'warn');
+                        return;
+                    }
+                    this.game.placeObject(this.placementMode, sx, sz);
+                    this.placementMode = null;
+                    document.querySelectorAll('.btn-place').forEach(b => b.classList.remove('active'));
+                    document.getElementById('placement-hint').style.display = 'none';
+                    this.game.sceneManager.removeGhost();
+                }
+                return;
+            }
+
+            // Agent click?
+            const agent = this.game.sceneManager.raycastAgents(e, this.game.agents);
+            if (agent) {
+                this.game.selectedAgent = agent;
+                document.getElementById('hud').textContent = `Selected: ${agent.label}`;
+                this.refreshAgentChips();
+            }
+        });
+    }
+
+    _buildActionButtons() {
+        const wrap = document.getElementById('action-buttons');
+        ['go_to_kitchen','go_to_bed','go_to_bathroom','eat','sleep','use_toilet','idle','wander'].forEach(name => {
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-action';
+            btn.textContent = name.replace(/_/g, ' ');
+            btn.addEventListener('click', () => {
+                const a = this.game.selectedAgent;
+                if (!a) { this.game.log('Select an agent first', 'warn'); return; }
+                a.executeAction(name);
+            });
+            wrap.appendChild(btn);
+        });
+    }
+
+    _buildInteractionButtons() {
+        const wrap = document.getElementById('interact-buttons');
+        this.game.interactionSystem.getAvailableInteractions().forEach(name => {
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-interact';
+            btn.style.fontSize = '11px';
+            btn.textContent = name.replace(/_/g, ' ');
+            btn.addEventListener('click', () => {
+                if (!this.interactA || !this.interactB) { this.game.log('Select A and B', 'warn'); return; }
+                if (this.interactA === this.interactB) { this.game.log('Cannot self-interact', 'warn'); return; }
+                this.game.interactionSystem.execute(name, this.interactA, this.interactB);
+            });
+            wrap.appendChild(btn);
+        });
+    }
+
+    refreshAgentChips() {
+        this._chips('agent-select-left', a => { this.game.selectedAgent=a; document.getElementById('hud').textContent=`Selected: ${a.label}`; this.refreshAgentChips(); }, this.game.selectedAgent);
+        this._chips('interact-a-chips', a => { this.interactA=a; this.refreshAgentChips(); }, this.interactA);
+        this._chips('interact-b-chips', a => { this.interactB=a; this.refreshAgentChips(); }, this.interactB);
+    }
+
+    _chips(id, onClick, sel) {
+        const w = document.getElementById(id);
+        w.innerHTML = '';
+        this.game.agents.forEach(a => {
+            const c = document.createElement('span');
+            c.className = 'agent-chip' + (a===sel?' selected':'');
+            c.innerHTML = `<span class="agent-dot" style="background:${a.colorCSS}"></span>${a.label}`;
+            c.addEventListener('click', () => onClick(a));
+            w.appendChild(c);
+        });
+    }
+
+    updateStateDisplay() {
+        const agent = this.game.selectedAgent;
+        const el = document.getElementById('state-display');
+        if (!agent) { el.innerHTML = '<span style="color:#444">No agent selected</span>'; return; }
+
+        const s = agent.state.toJSON(), p = agent.personality.toJSON();
+        const bc = (k, v) => { let x = k === 'hunger' ? 100-v : v; return x>60?'#95e1d3':x>30?'#f4a261':'#e94560'; };
+
+        let h = `<b style="color:${agent.colorCSS}">${agent.label}</b>`;
+        if (agent.currentAction) h += ` <span style="color:#53d8fb;font-size:9px">${agent.currentAction}</span>`;
+        h += `<span style="float:right;font-size:9px">${s.moodLabel}</span>`;
+        ['energy','hunger','hygiene','comfort','mood'].forEach(k => {
+            h += `<div class="state-row"><span class="state-label">${k}</span><div class="bar-bg"><div class="bar-fill" style="width:${s[k]}%;background:${bc(k,s[k])}"></div></div><span class="state-val">${s[k]}</span></div>`;
+        });
+        h += `<div style="margin-top:4px;font-size:9px;color:#555">Personality</div>`;
+        for (const [k,v] of Object.entries(p)) {
+            h += `<div class="state-row"><span class="state-label">${k}</span><div class="bar-bg"><div class="bar-fill" style="width:${v}%;background:#444"></div></div><span class="state-val">${v}</span></div>`;
+        }
+        el.innerHTML = h;
+
+        // Target state
+        const tEl = document.getElementById('target-state-display');
+        const t = this.interactB;
+        if (!t) { tEl.innerHTML = '&mdash;'; return; }
+        const ts = t.state.toJSON();
+        let th = `<b style="color:${t.colorCSS}">${t.label}</b> <span style="font-size:9px">${ts.moodLabel}</span>`;
+        ['energy','hunger','hygiene','comfort','mood'].forEach(k => {
+            th += `<div class="state-row"><span class="state-label">${k}</span><div class="bar-bg"><div class="bar-fill" style="width:${ts[k]}%;background:${bc(k,ts[k])}"></div></div><span class="state-val">${ts[k]}</span></div>`;
+        });
+        tEl.innerHTML = th;
+
+        // Relationship
+        const rEl = document.getElementById('relationship-display');
+        if (!this.interactA || !this.interactB || this.interactA===this.interactB) {
+            rEl.textContent = 'Select two different agents'; return;
+        }
+        const r = this.game.relationships;
+        rEl.innerHTML = `${this.interactA.label} → ${this.interactB.label}: <b>${Math.round(r.get(this.interactA.id,this.interactB.id))}</b>/100<br>${this.interactB.label} → ${this.interactA.label}: <b>${Math.round(r.get(this.interactB.id,this.interactA.id))}</b>/100`;
+    }
+}
+
+// ================================================================
+//  MODULE: Game — orchestrator
+// ================================================================
+class Game {
+    constructor() {
+        this.objects = [];
+        this.agents  = [];
+        this.selectedAgent = null;
+        this.relationships = new RelationshipMap();
+        this.sceneManager = null;
+        this.actionSystem = null;
+        this.interactionSystem = null;
+        this.autonomy = null;
+        this.ui = null;
+        this._lastTime = 0;
+    }
+
+    init() {
+        this.sceneManager      = new SceneManager(document.getElementById('viewport'));
+        this.actionSystem      = new ActionSystem(this);
+        this.interactionSystem = new InteractionSystem(this);
+        this.autonomy          = new AutonomySystem(this);
+        this._registerActions();
+
+        this.addAgent(-3, 2);
+        this.addAgent(3, -1);
+        this.selectedAgent = this.agents[0];
+
+        this.ui = new UIController(this);
+        this.ui.refreshAgentChips();
+
+        this.log('3D engine ready. Place objects, select agents, trigger actions.', 'act');
+        requestAnimationFrame(t => this._loop(t));
+    }
+
+    addAgent(x, z) {
+        if (x === undefined) x = randR(-SIM_W/2+2, SIM_W/2-2);
+        if (z === undefined) z = randR(-SIM_H/2+2, SIM_H/2-2);
+        const a = new Agent(x, z);
+        this.agents.push(a);
+        this.sceneManager.createAgentMesh(a);
+        this.log(`${a.label} joined (S:${a.personality.socialness} A:${a.personality.aggression})`, 'act');
+        if (this.ui) this.ui.refreshAgentChips();
+        return a;
+    }
+
+    placeObject(type, x, z) {
+        const obj = new WorldObject(type, x, z);
+        this.objects.push(obj);
+        this.sceneManager.createObjectMesh(obj);
+        this.log(`Placed ${obj.id}`, 'act');
+        return obj;
+    }
+
+    findObject(type) { return this.objects.find(o => o.type === type) || null; }
+    findObjectById(id) { return this.objects.find(o => o.id === id) || null; }
+
+    log(msg, cls = '') {
+        const el = document.getElementById('log');
+        const t = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+        const d = document.createElement('div');
+        d.className = 'l ' + cls;
+        d.textContent = `[${t}] ${msg}`;
+        el.appendChild(d);
+        if (el.children.length > 200) el.removeChild(el.firstChild);
+        el.scrollTop = el.scrollHeight;
+    }
+
+    _registerActions() {
+        const wait = ms => new Promise(r => setTimeout(r, ms));
+        const goTo = async (agent, game, type) => {
+            const obj = game.findObject(type);
+            if (!obj) { game.log(`No ${type} placed!`, 'warn'); return null; }
+            const pt = obj.interactionPoint;
+            await agent.moveTo(pt.x, pt.z);
+            return obj;
+        };
+
+        this.actionSystem.register('go_to_kitchen', {
+            description:'Walk to kitchen', target:'kitchen',
+            fn: async (a,g) => { await goTo(a,g,'kitchen'); }
+        });
+        this.actionSystem.register('go_to_bed', {
+            description:'Walk to bed', target:'bed',
+            fn: async (a,g) => { await goTo(a,g,'bed'); }
+        });
+        this.actionSystem.register('go_to_bathroom', {
+            description:'Walk to bathroom', target:'bathroom',
+            fn: async (a,g) => { await goTo(a,g,'bathroom'); }
+        });
+        this.actionSystem.register('eat', {
+            description:'Eat at kitchen', target:'kitchen',
+            fn: async (a,g) => {
+                if (!await goTo(a,g,'kitchen')) return;
+                g.log(`${a.label} eating...`,'act');
+                await wait(2000);
+                a.state.modify({ hunger:-30, energy:5, comfort:3 });
+                g.log(`${a.label} finished eating`,'act');
+            }
+        });
+        this.actionSystem.register('sleep', {
+            description:'Sleep in bed', target:'bed',
+            fn: async (a,g) => {
+                if (!await goTo(a,g,'bed')) return;
+                g.log(`${a.label} sleeping...`,'act');
+                await wait(3000);
+                a.state.modify({ energy:40, comfort:10, hunger:5 });
+                g.log(`${a.label} woke up`,'act');
+            }
+        });
+        this.actionSystem.register('use_toilet', {
+            description:'Use bathroom', target:'bathroom',
+            fn: async (a,g) => {
+                if (!await goTo(a,g,'bathroom')) return;
+                g.log(`${a.label} freshening up...`,'act');
+                await wait(1500);
+                a.state.modify({ hygiene:35, comfort:5 });
+                g.log(`${a.label} feels clean`,'act');
+            }
+        });
+        this.actionSystem.register('idle', {
+            description:'Stand still', target:null,
+            fn: async (a,g) => { g.log(`${a.label} idling...`); await wait(1200); }
+        });
+        this.actionSystem.register('wander', {
+            description:'Random walk', target:null,
+            fn: async (a,g) => {
+                const m = 2;
+                await a.moveTo(randR(-SIM_W/2+m, SIM_W/2-m), randR(-SIM_H/2+m, SIM_H/2-m));
+            }
+        });
+    }
+
+    _loop(time) {
+        requestAnimationFrame(t => this._loop(t));
+        const dt = Math.min((time - this._lastTime) / 1000, 0.1);
+        this._lastTime = time;
+        const now = performance.now();
+        const timeSec = time / 1000;
+
+        // Update agents
+        for (const a of this.agents) {
+            a.updateMovement(dt);
+            a.state.tick(dt);
+            this.autonomy.update(a, now);
+            this.sceneManager.updateAgent(a, timeSec);
+        }
+
+        // Update object labels
+        for (const o of this.objects) {
+            this.sceneManager.updateObjectLabel(o);
+        }
+
+        // Proximity comfort
+        for (let i = 0; i < this.agents.length; i++) {
+            for (let j = i + 1; j < this.agents.length; j++) {
+                const a = this.agents[i], b = this.agents[j];
+                if (dist3(a,b) < PROXIMITY) {
+                    const boost = 0.3 * dt;
+                    a.state.modify({ comfort: boost * (a.personality.socialness/50) });
+                    b.state.modify({ comfort: boost * (b.personality.socialness/50) });
+                }
+            }
+        }
+
+        // Proximity lines
+        this.sceneManager.updateProximityLines(this.agents);
+
+        // Render
+        this.sceneManager.render();
+        this.ui.updateStateDisplay();
+    }
+}
+
+// ================================================================
+//  BOOTSTRAP
+// ================================================================
+const game = new Game();
+game.init();
+
+// Expose to window for external access
+window.game = game;
+
+// ── Global API (identical interface to 2D version) ──
+window.simAPI = {
+    executeAction: (agentId, actionName) => {
+        const a = typeof agentId === 'number' ? game.agents[agentId] : game.agents.find(x => x.id === agentId);
+        return a ? a.executeAction(actionName) : Promise.resolve(false);
+    },
+    interact: (actorId, targetId, interactionName) => {
+        const a = game.agents.find(x => x.id === actorId);
+        const b = game.agents.find(x => x.id === targetId);
+        return (a && b) ? game.interactionSystem.execute(interactionName, a, b) : Promise.resolve(false);
+    },
+    getAgents:       () => game.agents.map(a => ({ id:a.id, label:a.label, x:+a.x.toFixed(2), z:+a.z.toFixed(2), busy:a.busy, state:a.state.toJSON(), personality:a.personality.toJSON() })),
+    getObjects:      () => game.objects.map(o => ({ id:o.id, type:o.type, x:o.x, z:o.z })),
+    getActions:      () => game.actionSystem.getAvailableActions(),
+    getInteractions: () => game.interactionSystem.getAvailableInteractions(),
+    getRelationship: (a,b) => game.relationships.get(a,b),
+    addAgent:        () => { const a = game.addAgent(); return a.id; },
+    placeObject:     (type, x, z) => { const o = game.placeObject(type, x, z); return o.id; },
+    setAutonomy:     (id, on) => { const a = game.agents.find(x=>x.id===id); if(a) a._isAutonomous=on; },
+};
+
+</script>
+</body>
+</html>
