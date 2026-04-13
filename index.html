@@ -1,309 +1,464 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Life Simulation Prototype</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Segoe UI', system-ui, sans-serif;
-            background: #1a1a2e;
-            color: #e0e0e0;
-            display: flex;
-            height: 100vh;
-            overflow: hidden;
-        }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Life Simulation Engine</title>
+<style>
+/* ================================================================
+   GLOBAL STYLES
+   ================================================================ */
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: #0f0f1a;
+    color: #ccc;
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+    font-size: 13px;
+}
 
-        /* ── Left Panel: Controls ── */
-        #ui-panel {
-            width: 260px;
-            background: #16213e;
-            border-right: 1px solid #0f3460;
-            display: flex;
-            flex-direction: column;
-            padding: 16px;
-            gap: 12px;
-            overflow-y: auto;
-        }
-        #ui-panel h2 {
-            font-size: 14px;
-            text-transform: uppercase;
-            letter-spacing: 1.5px;
-            color: #e94560;
-            border-bottom: 1px solid #0f3460;
-            padding-bottom: 8px;
-        }
-        .btn {
-            padding: 10px 14px;
-            border: 1px solid #0f3460;
-            background: #1a1a2e;
-            color: #e0e0e0;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 13px;
-            text-align: left;
-            transition: all 0.15s;
-        }
-        .btn:hover { background: #0f3460; border-color: #e94560; }
-        .btn:active { transform: scale(0.97); }
-        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-        .btn.place-btn { border-left: 3px solid #53d8fb; }
-        .btn.action-btn { border-left: 3px solid #e94560; }
-        .btn.active { background: #e94560; color: #fff; }
+/* ================================================================
+   PANEL BASE
+   ================================================================ */
+.panel {
+    width: 280px;
+    background: #161625;
+    border-color: #252540;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    padding: 10px;
+    gap: 8px;
+    flex-shrink: 0;
+}
+.panel::-webkit-scrollbar { width: 4px; }
+.panel::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+.panel-left  { border-right: 1px solid #252540; }
+.panel-right { border-left:  1px solid #252540; }
 
-        /* ── State Display ── */
-        #state-display {
-            background: #1a1a2e;
-            border: 1px solid #0f3460;
-            border-radius: 6px;
-            padding: 12px;
-            font-size: 12px;
-        }
-        .state-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 6px;
-        }
-        .state-row:last-child { margin-bottom: 0; }
-        .state-bar-bg {
-            width: 100px;
-            height: 8px;
-            background: #0a0a1a;
-            border-radius: 4px;
-            overflow: hidden;
-        }
-        .state-bar {
-            height: 100%;
-            border-radius: 4px;
-            transition: width 0.3s;
-        }
+.section-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: #e94560;
+    padding: 6px 0 4px;
+    border-bottom: 1px solid #252540;
+    margin-top: 4px;
+}
 
-        /* ── Activity Log ── */
-        #log-container {
-            flex: 1;
-            min-height: 0;
-            display: flex;
-            flex-direction: column;
-        }
-        #activity-log {
-            flex: 1;
-            overflow-y: auto;
-            font-size: 11px;
-            background: #0a0a1a;
-            border: 1px solid #0f3460;
-            border-radius: 6px;
-            padding: 8px;
-            line-height: 1.6;
-        }
-        #activity-log .log-entry { color: #888; }
-        #activity-log .log-entry.action { color: #53d8fb; }
-        #activity-log .log-entry.state { color: #e94560; }
+/* ================================================================
+   BUTTONS
+   ================================================================ */
+.btn {
+    padding: 7px 10px;
+    border: 1px solid #252540;
+    background: #1a1a30;
+    color: #ccc;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 12px;
+    text-align: left;
+    transition: background 0.12s, border-color 0.12s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.btn:hover { background: #252545; border-color: #e94560; }
+.btn:active { transform: scale(0.97); }
+.btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.btn.active  { background: #e94560; color: #fff; border-color: #e94560; }
+.btn-place   { border-left: 3px solid #53d8fb; }
+.btn-action  { border-left: 3px solid #e94560; }
+.btn-interact{ border-left: 3px solid #95e1d3; }
+.btn-add     { border-left: 3px solid #f4a261; background: #1c1c34; }
+.btn-small   { padding: 5px 8px; font-size: 11px; }
 
-        /* ── Canvas Area ── */
-        #canvas-container {
-            flex: 1;
-            position: relative;
-        }
-        #canvas-container canvas {
-            display: block;
-            width: 100%;
-            height: 100%;
-        }
-        #status-bar {
-            position: absolute;
-            top: 12px;
-            left: 12px;
-            background: rgba(22, 33, 62, 0.9);
-            padding: 8px 14px;
-            border-radius: 6px;
-            font-size: 12px;
-            border: 1px solid #0f3460;
-        }
-        #placement-hint {
-            position: absolute;
-            bottom: 12px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(233, 69, 96, 0.9);
-            padding: 8px 20px;
-            border-radius: 6px;
-            font-size: 13px;
-            display: none;
-        }
-    </style>
+/* ================================================================
+   STATE DISPLAY
+   ================================================================ */
+.state-block {
+    background: #12121f;
+    border: 1px solid #252540;
+    border-radius: 6px;
+    padding: 8px;
+    margin-bottom: 2px;
+}
+.state-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 4px;
+    font-size: 11px;
+}
+.state-row:last-child { margin-bottom: 0; }
+.state-label { width: 60px; color: #888; }
+.bar-bg {
+    flex: 1;
+    height: 7px;
+    background: #0a0a14;
+    border-radius: 3px;
+    margin: 0 6px;
+    overflow: hidden;
+}
+.bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s;
+}
+.state-val { width: 28px; text-align: right; font-size: 10px; color: #aaa; }
+
+/* ================================================================
+   AGENT SELECTOR (RIGHT PANEL)
+   ================================================================ */
+.agent-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    border: 1px solid #252540;
+    cursor: pointer;
+    font-size: 11px;
+    margin: 2px;
+    transition: border-color 0.15s;
+}
+.agent-chip:hover { border-color: #e94560; }
+.agent-chip.selected { border-color: #e94560; background: #2a1a2a; }
+.agent-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.interaction-arrow {
+    text-align: center;
+    font-size: 18px;
+    color: #e94560;
+    padding: 4px 0;
+}
+
+/* ================================================================
+   PERSONALITY DISPLAY
+   ================================================================ */
+.trait-row {
+    display: flex;
+    align-items: center;
+    font-size: 10px;
+    color: #777;
+    margin-bottom: 2px;
+}
+.trait-row .state-label { font-size: 10px; width: 70px; }
+
+/* ================================================================
+   CANVAS
+   ================================================================ */
+#canvas-wrap {
+    flex: 1;
+    position: relative;
+    background: #0a0a14;
+}
+#canvas-wrap canvas { display: block; width: 100%; height: 100%; }
+#hud {
+    position: absolute; top: 8px; left: 8px;
+    background: rgba(22,22,37,0.92);
+    padding: 6px 12px;
+    border-radius: 5px;
+    font-size: 11px;
+    border: 1px solid #252540;
+    pointer-events: none;
+}
+#placement-hint {
+    position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+    background: rgba(233,69,96,0.88);
+    padding: 6px 18px;
+    border-radius: 5px;
+    font-size: 12px;
+    display: none;
+    pointer-events: none;
+}
+
+/* ================================================================
+   LOG
+   ================================================================ */
+#log-wrap {
+    flex: 1; min-height: 0;
+    display: flex; flex-direction: column;
+}
+#log {
+    flex: 1;
+    overflow-y: auto;
+    font-size: 10px;
+    background: #0a0a14;
+    border: 1px solid #252540;
+    border-radius: 5px;
+    padding: 6px;
+    line-height: 1.55;
+}
+#log .l { color: #555; }
+#log .l.act { color: #53d8fb; }
+#log .l.warn { color: #f4a261; }
+#log .l.int { color: #95e1d3; }
+</style>
 </head>
 <body>
 
-<!-- ── UI Panel ── -->
-<div id="ui-panel">
-    <h2>Place Objects</h2>
-    <button class="btn place-btn" data-place="kitchen">🍳 Place Kitchen</button>
-    <button class="btn place-btn" data-place="bed">🛏️ Place Bed</button>
-    <button class="btn place-btn" data-place="bathroom">🚿 Place Bathroom</button>
+<!-- ============================================================
+     LEFT PANEL
+     ============================================================ -->
+<div class="panel panel-left" id="panel-left">
+    <div class="section-title">Place Objects</div>
+    <button class="btn btn-place" data-place="kitchen">&#x1F373; Kitchen</button>
+    <button class="btn btn-place" data-place="bed">&#x1F6CF; Bed</button>
+    <button class="btn btn-place" data-place="bathroom">&#x1F6BF; Bathroom</button>
 
-    <h2>Actions</h2>
-    <button class="btn action-btn" data-action="go_to_kitchen">Go to Kitchen</button>
-    <button class="btn action-btn" data-action="go_to_bed">Go to Bed</button>
-    <button class="btn action-btn" data-action="go_to_bathroom">Go to Bathroom</button>
-    <button class="btn action-btn" data-action="sleep">Sleep</button>
-    <button class="btn action-btn" data-action="eat">Eat</button>
-    <button class="btn action-btn" data-action="use_toilet">Use Toilet</button>
-    <button class="btn action-btn" data-action="idle">Idle</button>
-    <button class="btn action-btn" data-action="wander_randomly">Wander</button>
+    <div class="section-title">Agents</div>
+    <button class="btn btn-add" id="btn-add-agent">+ Add Agent</button>
+    <div id="agent-select-left"></div>
 
-    <h2>Agent State</h2>
-    <div id="state-display"></div>
+    <div class="section-title">Manual Actions</div>
+    <div id="action-buttons"></div>
 
-    <div id="log-container">
-        <h2>Activity Log</h2>
-        <div id="activity-log"></div>
+    <div class="section-title">Selected Agent State</div>
+    <div id="state-display">No agent selected</div>
+
+    <div id="log-wrap">
+        <div class="section-title">Log</div>
+        <div id="log"></div>
     </div>
 </div>
 
-<!-- ── 3D Canvas ── -->
-<div id="canvas-container">
-    <div id="status-bar">Ready</div>
-    <div id="placement-hint">Click inside the room to place object</div>
+<!-- ============================================================
+     CANVAS
+     ============================================================ -->
+<div id="canvas-wrap">
+    <canvas id="canvas"></canvas>
+    <div id="hud">Click an agent to select it</div>
+    <div id="placement-hint">Click inside the room to place</div>
 </div>
 
-<!-- ── Three.js ── -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<!-- ============================================================
+     RIGHT PANEL
+     ============================================================ -->
+<div class="panel panel-right" id="panel-right">
+    <div class="section-title">Interactions</div>
+    <p style="font-size:11px;color:#666;margin-bottom:4px;">Select Agent A then Agent B</p>
 
+    <div class="section-title" style="font-size:10px;margin-top:2px;">Agent A (actor)</div>
+    <div id="interact-a-chips"></div>
+
+    <div class="interaction-arrow">&#x2193;</div>
+
+    <div class="section-title" style="font-size:10px;margin-top:0;">Agent B (target)</div>
+    <div id="interact-b-chips"></div>
+
+    <div class="section-title">Actions</div>
+    <div id="interact-buttons"></div>
+
+    <div class="section-title">Relationship</div>
+    <div id="relationship-display" class="state-block" style="font-size:11px;color:#666;">
+        Select two agents
+    </div>
+
+    <div class="section-title">Agent B State</div>
+    <div id="target-state-display" class="state-block" style="font-size:11px;color:#666;">
+        —
+    </div>
+</div>
+
+<!-- ============================================================
+     ENGINE CODE
+     ============================================================ -->
 <script>
-// ============================================================================
+"use strict";
+
+// ================================================================
 //  CONSTANTS
-// ============================================================================
-const ROOM_SIZE   = 20;          // room is 20x20 units
-const GRID_SIZE   = 1;           // each grid cell = 1 unit
-const MOVE_SPEED  = 4;           // units per second
-const OBJECT_SIZE = 2;           // footprint of placeable objects
+// ================================================================
+const ROOM_W       = 800;          // world units (pixels on our logical canvas)
+const ROOM_H       = 600;
+const ROOM_PAD     = 40;           // wall thickness visual
+const OBJ_SIZE     = 60;           // object footprint
+const AGENT_RADIUS = 14;
+const MOVE_SPEED   = 120;          // px / sec
+const PROXIMITY    = 60;           // interaction distance
+const AUTO_TICK_MIN = 4000;        // ms between autonomous decisions
+const AUTO_TICK_MAX = 6000;
+const WANDER_IDLE  = 5000;         // ms of idle before wander kicks in
 
-const COLORS = {
-    floor:    0x2a2a4a,
-    wall:     0x4a4a6a,
-    grid:     0x333355,
-    kitchen:  0xf4a261,
-    bed:      0x7ec8e3,
-    bathroom: 0x95e1d3,
-    agent:    0xe94560,
-    agentDir: 0xff6b81,
-};
+const AGENT_COLORS = [
+    '#e94560','#2ecc71','#3498db','#f1c40f','#9b59b6',
+    '#e67e22','#1abc9c','#e74c3c','#00cec9','#fd79a8'
+];
 
-// ============================================================================
-//  MODULE: WorldObject — Represents a placeable object in the room
-// ============================================================================
+// ================================================================
+//  UTILITY
+// ================================================================
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+function lerp(a, b, t) { return a + (b - a) * t; }
+function randRange(lo, hi) { return lo + Math.random() * (hi - lo); }
+function randInt(lo, hi) { return Math.floor(randRange(lo, hi + 1)); }
+function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function uid() { return '_' + Math.random().toString(36).slice(2, 9); }
+
+// ================================================================
+//  MODULE: WorldObject
+// ================================================================
 class WorldObject {
-    static _counter = {};
-
-    constructor(type, x, z) {
-        // Auto-generate unique ID like "kitchen_1"
-        WorldObject._counter[type] = (WorldObject._counter[type] || 0) + 1;
-        this.id   = `${type}_${WorldObject._counter[type]}`;
+    static _counters = {};
+    constructor(type, x, y) {
+        WorldObject._counters[type] = (WorldObject._counters[type] || 0) + 1;
+        this.id   = `${type}_${WorldObject._counters[type]}`;
         this.type = type;
         this.x    = x;
-        this.z    = z;
-        this.size = OBJECT_SIZE;
-        this.mesh = null;    // set by renderer
+        this.y    = y;
+        this.w    = OBJ_SIZE;
+        this.h    = OBJ_SIZE;
     }
-
-    // Interaction point: where the agent stands to use this object
+    // Where agent stands to use this object (just below it)
     get interactionPoint() {
-        return { x: this.x, z: this.z + this.size / 2 + 0.5 };
+        return { x: this.x + this.w / 2, y: this.y + this.h + AGENT_RADIUS + 4 };
+    }
+    containsPoint(px, py) {
+        return px >= this.x && px <= this.x + this.w && py >= this.y && py <= this.y + this.h;
     }
 }
 
-// ============================================================================
-//  MODULE: StateSystem — Internal needs of an agent
-// ============================================================================
+// ================================================================
+//  MODULE: Personality
+// ================================================================
+class Personality {
+    constructor(opts = {}) {
+        this.socialness = opts.socialness ?? randInt(20, 80);
+        this.aggression = opts.aggression ?? randInt(10, 60);
+        this.laziness   = opts.laziness   ?? randInt(10, 70);
+        this.curiosity  = opts.curiosity  ?? randInt(20, 80);
+    }
+    toJSON() {
+        return { socialness: this.socialness, aggression: this.aggression,
+                 laziness: this.laziness, curiosity: this.curiosity };
+    }
+}
+
+// ================================================================
+//  MODULE: StateSystem — needs + mood + comfort
+// ================================================================
 class StateSystem {
     constructor() {
-        this.energy  = 80;
-        this.hunger  = 30;
-        this.hygiene = 70;
-        this.mood    = 'happy';
+        this.energy  = randRange(60, 90);
+        this.hunger  = randRange(10, 40);
+        this.hygiene = randRange(60, 90);
+        this.comfort = randRange(50, 80);
+        this.mood    = 100;   // 0-100 numeric, label derived
     }
-
-    // Clamp all values to 0–100
-    _clamp() {
-        this.energy  = Math.max(0, Math.min(100, this.energy));
-        this.hunger  = Math.max(0, Math.min(100, this.hunger));
-        this.hygiene = Math.max(0, Math.min(100, this.hygiene));
-    }
-
-    // Recalculate mood from current needs
-    updateMood() {
-        const avg = (this.energy + (100 - this.hunger) + this.hygiene) / 3;
-        if (avg > 66)      this.mood = 'happy';
-        else if (avg > 33) this.mood = 'neutral';
-        else               this.mood = 'sad';
-    }
-
     modify(changes) {
-        for (const [key, delta] of Object.entries(changes)) {
-            if (key in this && key !== 'mood') this[key] += delta;
+        for (const [k, v] of Object.entries(changes)) {
+            if (k in this) this[k] += v;
         }
         this._clamp();
-        this.updateMood();
+        this._deriveMood();
     }
-
-    // Passive decay over time
     tick(dt) {
-        this.energy  -= 1.0 * dt;
-        this.hunger  += 0.8 * dt;
-        this.hygiene -= 0.5 * dt;
+        // passive decay per second
+        this.energy  -= 0.6 * dt;
+        this.hunger  += 0.5 * dt;
+        this.hygiene -= 0.3 * dt;
+        this.comfort -= 0.2 * dt;
         this._clamp();
-        this.updateMood();
+        this._deriveMood();
     }
-
+    _clamp() {
+        this.energy  = clamp(this.energy,  0, 100);
+        this.hunger  = clamp(this.hunger,  0, 100);
+        this.hygiene = clamp(this.hygiene, 0, 100);
+        this.comfort = clamp(this.comfort, 0, 100);
+        this.mood    = clamp(this.mood,    0, 100);
+    }
+    _deriveMood() {
+        // mood = weighted average of positive need satisfaction
+        this.mood = clamp(
+            0.35 * this.energy +
+            0.30 * (100 - this.hunger) +
+            0.15 * this.hygiene +
+            0.20 * this.comfort,
+            0, 100
+        );
+    }
+    get moodLabel() {
+        if (this.mood > 75) return 'happy';
+        if (this.mood > 50) return 'fine';
+        if (this.mood > 30) return 'sad';
+        return 'miserable';
+    }
     toJSON() {
         return {
-            energy:  Math.round(this.energy),
-            hunger:  Math.round(this.hunger),
-            hygiene: Math.round(this.hygiene),
-            mood:    this.mood
+            energy: Math.round(this.energy), hunger: Math.round(this.hunger),
+            hygiene: Math.round(this.hygiene), comfort: Math.round(this.comfort),
+            mood: Math.round(this.mood), moodLabel: this.moodLabel
         };
     }
 }
 
-// ============================================================================
-//  MODULE: Agent — The controllable character
-// ============================================================================
+// ================================================================
+//  MODULE: RelationshipMap — tracks pairwise scores
+// ================================================================
+class RelationshipMap {
+    constructor() { this._scores = {}; }
+    _key(a, b) { return `${a}::${b}`; }
+    get(a, b) { return this._scores[this._key(a, b)] ?? 50; }
+    modify(a, b, delta) {
+        const k = this._key(a, b);
+        this._scores[k] = clamp((this._scores[k] ?? 50) + delta, 0, 100);
+    }
+    // Modify both directions (symmetric)
+    modifyBoth(a, b, delta) { this.modify(a, b, delta); this.modify(b, a, delta); }
+}
+
+// ================================================================
+//  MODULE: Agent
+// ================================================================
 class Agent {
-    constructor(x, z) {
+    static _count = 0;
+    constructor(x, y) {
+        Agent._count++;
+        this.id    = `agent_${Agent._count}`;
+        this.label = `Agent ${Agent._count}`;
+        this.color = AGENT_COLORS[(Agent._count - 1) % AGENT_COLORS.length];
         this.x = x;
-        this.z = z;
+        this.y = y;
         this.targetX = x;
-        this.targetZ = z;
-        this.state   = new StateSystem();
-        this.mesh    = null;      // set by renderer
-        this.busy    = false;     // true while performing an action
+        this.targetY = y;
+        this.facing  = 0;          // angle in radians
+
+        this.state       = new StateSystem();
+        this.personality  = new Personality();
+
+        this.busy          = false;
         this.currentAction = null;
         this._moveResolve  = null;
+
+        // Autonomy timing
+        this._lastActionTime = performance.now();
+        this._autoInterval   = randRange(AUTO_TICK_MIN, AUTO_TICK_MAX);
+        this._lastIdleStart  = performance.now();
+        this._isAutonomous   = true;  // can be toggled
     }
 
-    // Returns true if agent is still walking toward target
-    get isMoving() {
-        const dx = this.targetX - this.x;
-        const dz = this.targetZ - this.z;
-        return Math.sqrt(dx * dx + dz * dz) > 0.05;
-    }
+    get isMoving() { return dist(this, { x: this.targetX, y: this.targetY }) > 1; }
 
-    // Set movement target; returns a Promise that resolves on arrival
-    moveTo(x, z) {
-        // Clamp to room bounds
-        const half = ROOM_SIZE / 2 - 0.5;
-        this.targetX = Math.max(-half, Math.min(half, x));
-        this.targetZ = Math.max(-half, Math.min(half, z));
-
+    moveTo(x, y) {
+        // Clamp inside room
+        this.targetX = clamp(x, ROOM_PAD + AGENT_RADIUS, ROOM_W - ROOM_PAD - AGENT_RADIUS);
+        this.targetY = clamp(y, ROOM_PAD + AGENT_RADIUS, ROOM_H - ROOM_PAD - AGENT_RADIUS);
         return new Promise(resolve => {
             if (!this.isMoving) { resolve(); return; }
             this._moveResolve = resolve;
         });
     }
 
-    // Called every frame to advance position
     updateMovement(dt) {
         if (!this.isMoving) {
             if (this._moveResolve) {
@@ -313,408 +468,517 @@ class Agent {
             }
             return;
         }
-
         const dx = this.targetX - this.x;
-        const dz = this.targetZ - this.z;
-        const dist = Math.sqrt(dx * dx + dz * dz);
-        const step = Math.min(MOVE_SPEED * dt, dist);
-        this.x += (dx / dist) * step;
-        this.z += (dz / dist) * step;
+        const dy = this.targetY - this.y;
+        const d  = Math.hypot(dx, dy);
+        const step = Math.min(MOVE_SPEED * dt, d);
+        this.x += (dx / d) * step;
+        this.y += (dy / d) * step;
+        this.facing = Math.atan2(dy, dx);
     }
 
-    // ── External API: call an action by name ──
-    // This is the entry point an LLM or AI system will use later
-    async executeAction(actionName) {
-        if (this.busy) {
-            game.log(`Cannot "${actionName}" — agent is busy`, 'state');
-            return false;
-        }
-        return game.actionSystem.execute(actionName, this);
+    // External API entry-point (future LLM hook)
+    async executeAction(actionName, extraCtx) {
+        if (this.busy) return false;
+        return game.actionSystem.execute(actionName, this, extraCtx);
     }
+    async performAction(name, ctx) { return this.executeAction(name, ctx); }
 
-    // Alias for discoverability
-    async performAction(name) { return this.executeAction(name); }
+    // Future LLM hook: override this method with an LLM call
+    async decideNextAction(context) {
+        // Default: rule-based decision (see AutonomySystem)
+        return null;
+    }
 }
 
-// ============================================================================
-//  MODULE: ActionSystem — Registry of all available actions
-// ============================================================================
+// ================================================================
+//  MODULE: ActionSystem — registry of callable actions
+// ================================================================
 class ActionSystem {
     constructor(game) {
-        this.game    = game;
+        this.game = game;
         this.actions = {};
+    }
+
+    register(name, def) { this.actions[name] = def; }
+
+    getAvailableActions() { return Object.keys(this.actions); }
+
+    getActionDefs() {
+        return Object.entries(this.actions).map(([name, def]) => ({
+            name, description: def.description, target: def.target
+        }));
+    }
+
+    async execute(actionName, agent, extraCtx) {
+        const action = this.actions[actionName];
+        if (!action) { this.game.log(`Unknown action: ${actionName}`, 'warn'); return false; }
+        agent.busy = true;
+        agent.currentAction = actionName;
+        agent._lastActionTime = performance.now();
+        this.game.log(`${agent.label}: ${actionName}`, 'act');
+        try {
+            await action.fn(agent, this.game, extraCtx);
+        } catch (e) {
+            this.game.log(`${agent.label} error: ${e.message}`, 'warn');
+        }
+        agent.busy = false;
+        agent.currentAction = null;
+        agent._lastActionTime = performance.now();
+        agent._lastIdleStart  = performance.now();
+        return true;
+    }
+}
+
+// ================================================================
+//  MODULE: InteractionSystem — agent-to-agent actions
+// ================================================================
+class InteractionSystem {
+    constructor(game) {
+        this.game = game;
+        this.interactions = {};
         this._registerDefaults();
     }
 
-    // Register a named action
-    register(name, definition) {
-        this.actions[name] = definition;
-    }
+    register(name, def) { this.interactions[name] = def; }
 
-    // List all available action names (useful for AI later)
-    getAvailableActions() {
-        return Object.keys(this.actions);
-    }
+    getAvailableInteractions() { return Object.keys(this.interactions); }
 
-    // Execute a named action on an agent
-    async execute(actionName, agent) {
-        const action = this.actions[actionName];
-        if (!action) {
-            this.game.log(`Unknown action: "${actionName}"`, 'state');
-            return false;
+    async execute(name, actor, target) {
+        const int = this.interactions[name];
+        if (!int) return false;
+        if (actor.busy) { this.game.log(`${actor.label} is busy`, 'warn'); return false; }
+
+        actor.busy = true;
+        actor.currentAction = `${name} → ${target.label}`;
+        this.game.log(`${actor.label} → ${target.label}: ${name}`, 'int');
+
+        // Move close to target if not already
+        const d = dist(actor, target);
+        if (d > PROXIMITY) {
+            const angle = Math.atan2(target.y - actor.y, target.x - actor.x);
+            const tx = target.x - Math.cos(angle) * (PROXIMITY * 0.6);
+            const ty = target.y - Math.sin(angle) * (PROXIMITY * 0.6);
+            await actor.moveTo(tx, ty);
         }
-        agent.busy = true;
-        agent.currentAction = actionName;
-        this.game.log(`Starting: ${actionName}`, 'action');
-        this.game.updateStatus(`${actionName}...`);
 
         try {
-            await action.fn(agent, this.game);
-        } catch (err) {
-            this.game.log(`Action error: ${err.message}`, 'state');
+            await int.fn(actor, target, this.game);
+        } catch (e) {
+            this.game.log(`Interaction error: ${e.message}`, 'warn');
         }
 
-        agent.busy = false;
-        agent.currentAction = null;
-        this.game.updateStatus('Idle');
+        actor.busy = false;
+        actor.currentAction = null;
+        actor._lastActionTime = performance.now();
+        actor._lastIdleStart  = performance.now();
         return true;
     }
 
-    // ── Built-in action definitions ──
     _registerDefaults() {
+        const wait = ms => new Promise(r => setTimeout(r, ms));
+        const rel = this.game.relationships;
 
-        // Helper: move agent to the first object of a given type
-        const goToObject = async (agent, game, objectType) => {
-            const obj = game.findObject(objectType);
-            if (!obj) {
-                game.log(`No ${objectType} placed!`, 'state');
-                return null;
-            }
-            const pt = obj.interactionPoint;
-            game.log(`Walking to ${obj.id}...`);
-            await agent.moveTo(pt.x, pt.z);
-            return obj;
-        };
-
-        // Helper: wait for a duration (simulates doing something)
-        const wait = (ms) => new Promise(r => setTimeout(r, ms));
-
-        // ── Navigation actions ──
-        this.register('go_to_kitchen', {
-            description: 'Walk to the kitchen',
-            target: 'kitchen',
-            fn: async (agent, game) => {
-                await goToObject(agent, game, 'kitchen');
+        this.register('greet', {
+            description: 'Greet the other agent',
+            fn: async (a, b, game) => {
+                await wait(800);
+                rel.modifyBoth(a.id, b.id, 3);
+                a.state.modify({ comfort: 5, mood: 3 });
+                b.state.modify({ comfort: 3, mood: 2 });
+                game.log(`${a.label} waved at ${b.label}`, 'int');
             }
         });
 
-        this.register('go_to_bed', {
-            description: 'Walk to the bed',
-            target: 'bed',
-            fn: async (agent, game) => {
-                await goToObject(agent, game, 'bed');
-            }
-        });
-
-        this.register('go_to_bathroom', {
-            description: 'Walk to the bathroom',
-            target: 'bathroom',
-            fn: async (agent, game) => {
-                await goToObject(agent, game, 'bathroom');
-            }
-        });
-
-        // ── Behavior actions ──
-        this.register('sleep', {
-            description: 'Sleep in bed to restore energy',
-            target: 'bed',
-            fn: async (agent, game) => {
-                const obj = await goToObject(agent, game, 'bed');
-                if (!obj) return;
-                game.log('Sleeping... 💤');
-                await wait(2000);
-                agent.state.modify({ energy: +40, hunger: +5 });
-                game.log('Woke up feeling rested!', 'action');
-            }
-        });
-
-        this.register('eat', {
-            description: 'Eat at the kitchen to reduce hunger',
-            target: 'kitchen',
-            fn: async (agent, game) => {
-                const obj = await goToObject(agent, game, 'kitchen');
-                if (!obj) return;
-                game.log('Eating... 🍽️');
+        this.register('talk', {
+            description: 'Have a conversation',
+            fn: async (a, b, game) => {
                 await wait(1500);
-                agent.state.modify({ hunger: -35, energy: +5 });
-                game.log('Finished eating!', 'action');
+                const bonus = (a.personality.socialness + b.personality.socialness) / 200 * 5;
+                rel.modifyBoth(a.id, b.id, 4 + bonus);
+                a.state.modify({ comfort: 6 });
+                b.state.modify({ comfort: 6 });
+                game.log(`${a.label} and ${b.label} chatted`, 'int');
             }
         });
 
-        this.register('use_toilet', {
-            description: 'Use the bathroom to increase hygiene',
-            target: 'bathroom',
-            fn: async (agent, game) => {
-                const obj = await goToObject(agent, game, 'bathroom');
-                if (!obj) return;
-                game.log('Using bathroom... 🚿');
-                await wait(1500);
-                agent.state.modify({ hygiene: +35 });
-                game.log('Feeling fresh!', 'action');
+        this.register('compliment', {
+            description: 'Say something nice',
+            fn: async (a, b, game) => {
+                await wait(800);
+                rel.modify(b.id, a.id, 8);
+                b.state.modify({ comfort: 10, mood: 5 });
+                a.state.modify({ comfort: 3 });
+                game.log(`${a.label} complimented ${b.label}`, 'int');
             }
         });
 
-        this.register('idle', {
-            description: 'Stand still for a moment',
-            target: null,
-            fn: async (agent, game) => {
-                game.log('Idling...');
+        this.register('insult', {
+            description: 'Say something mean',
+            fn: async (a, b, game) => {
+                await wait(600);
+                rel.modify(b.id, a.id, -12);
+                rel.modify(a.id, b.id, -4);
+                b.state.modify({ comfort: -15, mood: -10 });
+                game.log(`${a.label} insulted ${b.label}!`, 'warn');
+            }
+        });
+
+        this.register('encourage', {
+            description: 'Encourage the other agent',
+            fn: async (a, b, game) => {
                 await wait(1000);
-                game.log('Done idling.', 'action');
+                rel.modify(b.id, a.id, 6);
+                b.state.modify({ comfort: 8, energy: 5 });
+                game.log(`${a.label} encouraged ${b.label}`, 'int');
             }
         });
 
-        this.register('wander_randomly', {
-            description: 'Walk to a random spot in the room',
-            target: null,
-            fn: async (agent, game) => {
-                const half = ROOM_SIZE / 2 - 1;
-                const rx = (Math.random() * 2 - 1) * half;
-                const rz = (Math.random() * 2 - 1) * half;
-                game.log(`Wandering to (${rx.toFixed(1)}, ${rz.toFixed(1)})...`);
-                await agent.moveTo(rx, rz);
-                game.log('Arrived at random spot.', 'action');
+        this.register('invite_to_eat', {
+            description: 'Invite to eat together',
+            fn: async (a, b, game) => {
+                const kitchen = game.findObject('kitchen');
+                if (!kitchen) { game.log('No kitchen placed!', 'warn'); return; }
+                const pt = kitchen.interactionPoint;
+                game.log(`${a.label} invited ${b.label} to eat`, 'int');
+                // Both walk to kitchen
+                await Promise.all([
+                    a.moveTo(pt.x - 20, pt.y),
+                    b.moveTo(pt.x + 20, pt.y)
+                ]);
+                await wait(1500);
+                a.state.modify({ hunger: -25, comfort: 8 });
+                b.state.modify({ hunger: -25, comfort: 8 });
+                rel.modifyBoth(a.id, b.id, 5);
+                game.log(`${a.label} and ${b.label} ate together`, 'int');
+            }
+        });
+
+        this.register('complain', {
+            description: 'Complain about something',
+            fn: async (a, b, game) => {
+                await wait(1000);
+                rel.modify(b.id, a.id, -3);
+                a.state.modify({ comfort: 4 });      // venting helps actor
+                b.state.modify({ comfort: -5 });
+                game.log(`${a.label} complained to ${b.label}`, 'int');
             }
         });
     }
 }
 
-// ============================================================================
-//  MODULE: Renderer — Three.js rendering (top-down 2D view)
-// ============================================================================
-class Renderer {
-    constructor(container) {
-        this.container = container;
+// ================================================================
+//  MODULE: AutonomySystem — rule-based decision loop (NO AI)
+// ================================================================
+class AutonomySystem {
+    constructor(game) { this.game = game; }
 
-        // Scene
-        this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(0x0a0a1a);
+    update(agent, now) {
+        if (agent.busy || !agent._isAutonomous) return;
 
-        // Orthographic camera (top-down)
-        const aspect = container.clientWidth / container.clientHeight;
-        const viewSize = 14;
-        this.camera = new THREE.OrthographicCamera(
-            -viewSize * aspect, viewSize * aspect,
-            viewSize, -viewSize,
-            0.1, 100
-        );
-        this.camera.position.set(0, 30, 0);
-        this.camera.lookAt(0, 0, 0);
-
-        // Renderer
-        this.renderer = new THREE.WebGLRenderer({ antialias: true });
-        this.renderer.setSize(container.clientWidth, container.clientHeight);
-        this.renderer.setPixelRatio(window.devicePixelRatio);
-        container.appendChild(this.renderer.domElement);
-
-        // Raycaster for click placement
-        this.raycaster = new THREE.Raycaster();
-        this.floorPlane = null;
-
-        this._buildRoom();
-
-        // Handle resize
-        window.addEventListener('resize', () => this._onResize());
-    }
-
-    _buildRoom() {
-        // Floor
-        const floorGeo = new THREE.PlaneGeometry(ROOM_SIZE, ROOM_SIZE);
-        const floorMat = new THREE.MeshBasicMaterial({ color: COLORS.floor });
-        this.floorPlane = new THREE.Mesh(floorGeo, floorMat);
-        this.floorPlane.rotation.x = -Math.PI / 2;
-        this.floorPlane.position.y = 0;
-        this.scene.add(this.floorPlane);
-
-        // Grid lines
-        const gridHelper = new THREE.GridHelper(ROOM_SIZE, ROOM_SIZE, COLORS.grid, COLORS.grid);
-        gridHelper.position.y = 0.01;
-        this.scene.add(gridHelper);
-
-        // Walls (thin boxes along edges)
-        const wallThick = 0.3;
-        const wallHeight = 1.5;
-        const wallMat = new THREE.MeshBasicMaterial({ color: COLORS.wall });
-        const half = ROOM_SIZE / 2;
-        const wallDefs = [
-            { w: ROOM_SIZE + wallThick * 2, d: wallThick, x: 0, z: -half - wallThick / 2 },
-            { w: ROOM_SIZE + wallThick * 2, d: wallThick, x: 0, z:  half + wallThick / 2 },
-            { w: wallThick, d: ROOM_SIZE, x: -half - wallThick / 2, z: 0 },
-            { w: wallThick, d: ROOM_SIZE, x:  half + wallThick / 2, z: 0 },
-        ];
-        wallDefs.forEach(w => {
-            const geo = new THREE.BoxGeometry(w.w, wallHeight, w.d);
-            const mesh = new THREE.Mesh(geo, wallMat);
-            mesh.position.set(w.x, wallHeight / 2, w.z);
-            this.scene.add(mesh);
-        });
-
-        // Ambient light (everything is MeshBasic so this is optional, kept for extensibility)
-        this.scene.add(new THREE.AmbientLight(0xffffff, 1));
-    }
-
-    // Create mesh for a WorldObject
-    createObjectMesh(obj) {
-        const geo = new THREE.BoxGeometry(obj.size, 0.6, obj.size);
-        const mat = new THREE.MeshBasicMaterial({ color: COLORS[obj.type] || 0xffffff });
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(obj.x, 0.3, obj.z);
-
-        // Label (using a small floating marker on top)
-        const markerGeo = new THREE.BoxGeometry(obj.size * 0.3, 0.15, obj.size * 0.3);
-        const markerMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-        const marker = new THREE.Mesh(markerGeo, markerMat);
-        marker.position.y = 0.4;
-        mesh.add(marker);
-
-        // Icon indicator: a small colored sphere
-        const dotGeo = new THREE.SphereGeometry(0.15, 8, 8);
-        const dotMat = new THREE.MeshBasicMaterial({ color: COLORS[obj.type] });
-        const dot = new THREE.Mesh(dotGeo, dotMat);
-        dot.position.y = 0.55;
-        mesh.add(dot);
-
-        this.scene.add(mesh);
-        obj.mesh = mesh;
-        return mesh;
-    }
-
-    // Create agent mesh (circle with direction indicator)
-    createAgentMesh(agent) {
-        const group = new THREE.Group();
-
-        // Body (cylinder for a top-down circle look)
-        const bodyGeo = new THREE.CylinderGeometry(0.5, 0.5, 0.8, 16);
-        const bodyMat = new THREE.MeshBasicMaterial({ color: COLORS.agent });
-        const body = new THREE.Mesh(bodyGeo, bodyMat);
-        body.position.y = 0.4;
-        group.add(body);
-
-        // Direction indicator
-        const dirGeo = new THREE.ConeGeometry(0.2, 0.4, 8);
-        const dirMat = new THREE.MeshBasicMaterial({ color: COLORS.agentDir });
-        const dir = new THREE.Mesh(dirGeo, dirMat);
-        dir.rotation.x = Math.PI / 2;
-        dir.position.set(0, 0.8, -0.4);
-        group.add(dir);
-
-        // Busy indicator ring
-        const ringGeo = new THREE.RingGeometry(0.6, 0.7, 24);
-        const ringMat = new THREE.MeshBasicMaterial({
-            color: 0x53d8fb, side: THREE.DoubleSide, transparent: true, opacity: 0
-        });
-        const ring = new THREE.Mesh(ringGeo, ringMat);
-        ring.rotation.x = -Math.PI / 2;
-        ring.position.y = 0.02;
-        group.add(ring);
-        group.userData.ring = ring;
-
-        group.position.set(agent.x, 0, agent.z);
-        this.scene.add(group);
-        agent.mesh = group;
-        return group;
-    }
-
-    // Update agent mesh position + busy indicator
-    updateAgent(agent, time) {
-        if (!agent.mesh) return;
-        agent.mesh.position.set(agent.x, 0, agent.z);
-
-        // Face movement direction
-        if (agent.isMoving) {
-            const angle = Math.atan2(
-                agent.x - agent.targetX,
-                agent.z - agent.targetZ
-            );
-            agent.mesh.rotation.y = angle;
+        const elapsed = now - agent._lastActionTime;
+        if (elapsed < agent._autoInterval) {
+            // Wander nudge if idle too long
+            if (now - agent._lastIdleStart > WANDER_IDLE && !agent.isMoving) {
+                this._smallWander(agent);
+                agent._lastIdleStart = now;
+            }
+            return;
         }
 
-        // Pulse ring while busy
-        const ring = agent.mesh.userData.ring;
-        if (ring) {
-            ring.material.opacity = agent.busy ? 0.5 + 0.3 * Math.sin(time * 5) : 0;
-        }
-
-        // Bobbing while moving
-        if (agent.isMoving) {
-            agent.mesh.position.y = 0.05 * Math.sin(time * 10);
-        }
+        // Time to decide
+        agent._autoInterval = randRange(AUTO_TICK_MIN, AUTO_TICK_MAX);
+        const action = this._decide(agent);
+        if (action) agent.executeAction(action);
     }
 
-    // Convert screen click to world coordinates on the floor
-    screenToWorld(mouseX, mouseY) {
-        const rect = this.container.getBoundingClientRect();
-        const ndc = new THREE.Vector2(
-            ((mouseX - rect.left) / rect.width) * 2 - 1,
-            -((mouseY - rect.top) / rect.height) * 2 + 1
-        );
-        this.raycaster.setFromCamera(ndc, this.camera);
-        const hits = this.raycaster.intersectObject(this.floorPlane);
-        if (hits.length > 0) {
-            return { x: hits[0].point.x, z: hits[0].point.z };
+    _decide(agent) {
+        const s = agent.state;
+        const p = agent.personality;
+
+        // Urgent needs first
+        if (s.energy < 20)  return 'sleep';
+        if (s.hunger > 75)  return 'eat';
+        if (s.hygiene < 25) return 'use_toilet';
+
+        // Moderate needs weighted by personality
+        if (s.energy < 45 && p.laziness > 50) return 'sleep';
+        if (s.hunger > 50) return 'eat';
+        if (s.hygiene < 45) return 'use_toilet';
+
+        // Social: try to interact with nearby agents
+        if (p.socialness > 40 && Math.random() < p.socialness / 150) {
+            const nearby = this._nearbyAgent(agent);
+            if (nearby && !nearby.busy) {
+                this._autoInteract(agent, nearby);
+                return null; // handled
+            }
+        }
+
+        // Curious agents wander more
+        if (p.curiosity > 50 && Math.random() < 0.5) return 'wander';
+
+        // Default
+        return Math.random() < 0.6 ? 'wander' : 'idle';
+    }
+
+    _nearbyAgent(agent) {
+        for (const other of this.game.agents) {
+            if (other === agent || other.busy) continue;
+            if (dist(agent, other) < PROXIMITY * 2) return other;
         }
         return null;
     }
 
-    // Snap coordinates to grid center
-    snapToGrid(x, z) {
-        return {
-            x: Math.round(x / GRID_SIZE) * GRID_SIZE,
-            z: Math.round(z / GRID_SIZE) * GRID_SIZE
-        };
+    _autoInteract(actor, target) {
+        const p = actor.personality;
+        const rel = this.game.relationships.get(actor.id, target.id);
+        let choices;
+        if (p.aggression > 60 && rel < 30) {
+            choices = ['insult', 'complain'];
+        } else if (p.socialness > 60) {
+            choices = ['talk', 'compliment', 'greet', 'encourage'];
+        } else {
+            choices = ['greet', 'talk'];
+        }
+        const action = pick(choices);
+        this.game.interactionSystem.execute(action, actor, target);
     }
 
-    render() {
-        this.renderer.render(this.scene, this.camera);
-    }
-
-    _onResize() {
-        const w = this.container.clientWidth;
-        const h = this.container.clientHeight;
-        const aspect = w / h;
-        const viewSize = 14;
-        this.camera.left   = -viewSize * aspect;
-        this.camera.right  =  viewSize * aspect;
-        this.camera.top    =  viewSize;
-        this.camera.bottom = -viewSize;
-        this.camera.updateProjectionMatrix();
-        this.renderer.setSize(w, h);
+    // Subtle idle wander (small random displacement)
+    _smallWander(agent) {
+        const dx = randRange(-50, 50);
+        const dy = randRange(-50, 50);
+        agent.moveTo(agent.x + dx, agent.y + dy);
     }
 }
 
-// ============================================================================
-//  MODULE: UIController — Connects DOM buttons to game logic
-// ============================================================================
+// ================================================================
+//  MODULE: Renderer — Canvas 2D
+// ================================================================
+class Renderer {
+    constructor(canvas) {
+        this.canvas = canvas;
+        this.ctx    = canvas.getContext('2d');
+        this._resize();
+        window.addEventListener('resize', () => this._resize());
+    }
+
+    _resize() {
+        const wrap = this.canvas.parentElement;
+        this.canvas.width  = wrap.clientWidth  * devicePixelRatio;
+        this.canvas.height = wrap.clientHeight * devicePixelRatio;
+        this.scaleX = wrap.clientWidth  / ROOM_W;
+        this.scaleY = wrap.clientHeight / ROOM_H;
+        this.scale  = Math.min(this.scaleX, this.scaleY);
+        this.offsetX = (wrap.clientWidth  - ROOM_W * this.scale) / 2;
+        this.offsetY = (wrap.clientHeight - ROOM_H * this.scale) / 2;
+    }
+
+    // Convert screen coords to world coords
+    screenToWorld(sx, sy) {
+        return {
+            x: (sx - this.offsetX) / this.scale,
+            y: (sy - this.offsetY) / this.scale,
+        };
+    }
+
+    worldToScreen(wx, wy) {
+        return {
+            x: wx * this.scale + this.offsetX,
+            y: wy * this.scale + this.offsetY
+        };
+    }
+
+    draw(game, time) {
+        const ctx = this.ctx;
+        const dpr = devicePixelRatio;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, this.canvas.width / dpr, this.canvas.height / dpr);
+
+        ctx.save();
+        ctx.translate(this.offsetX, this.offsetY);
+        ctx.scale(this.scale, this.scale);
+
+        this._drawRoom(ctx);
+        this._drawGrid(ctx);
+        game.objects.forEach(o => this._drawObject(ctx, o));
+        game.agents.forEach(a => this._drawAgent(ctx, a, time, game));
+
+        // Proximity lines
+        for (let i = 0; i < game.agents.length; i++) {
+            for (let j = i + 1; j < game.agents.length; j++) {
+                const a = game.agents[i], b = game.agents[j];
+                const d = dist(a, b);
+                if (d < PROXIMITY) {
+                    ctx.save();
+                    ctx.strokeStyle = 'rgba(149,225,211,0.25)';
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([4, 4]);
+                    ctx.beginPath();
+                    ctx.moveTo(a.x, a.y);
+                    ctx.lineTo(b.x, b.y);
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            }
+        }
+
+        ctx.restore();
+    }
+
+    _drawRoom(ctx) {
+        // Floor
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(ROOM_PAD, ROOM_PAD, ROOM_W - ROOM_PAD * 2, ROOM_H - ROOM_PAD * 2);
+
+        // Walls
+        ctx.fillStyle = '#2d2d4a';
+        ctx.fillRect(0, 0, ROOM_W, ROOM_PAD);                       // top
+        ctx.fillRect(0, ROOM_H - ROOM_PAD, ROOM_W, ROOM_PAD);      // bottom
+        ctx.fillRect(0, 0, ROOM_PAD, ROOM_H);                       // left
+        ctx.fillRect(ROOM_W - ROOM_PAD, 0, ROOM_PAD, ROOM_H);      // right
+
+        // Wall inner edge
+        ctx.strokeStyle = '#3d3d5c';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(ROOM_PAD, ROOM_PAD, ROOM_W - ROOM_PAD * 2, ROOM_H - ROOM_PAD * 2);
+    }
+
+    _drawGrid(ctx) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+        ctx.lineWidth = 0.5;
+        const step = 40;
+        for (let x = ROOM_PAD; x <= ROOM_W - ROOM_PAD; x += step) {
+            ctx.beginPath(); ctx.moveTo(x, ROOM_PAD); ctx.lineTo(x, ROOM_H - ROOM_PAD); ctx.stroke();
+        }
+        for (let y = ROOM_PAD; y <= ROOM_H - ROOM_PAD; y += step) {
+            ctx.beginPath(); ctx.moveTo(ROOM_PAD, y); ctx.lineTo(ROOM_W - ROOM_PAD, y); ctx.stroke();
+        }
+    }
+
+    _drawObject(ctx, obj) {
+        const colors = { kitchen: '#f4a261', bed: '#7ec8e3', bathroom: '#95e1d3' };
+        const icons  = { kitchen: '\u{1F373}', bed: '\u{1F6CF}', bathroom: '\u{1F6BF}' };
+        const c = colors[obj.type] || '#888';
+
+        // Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        ctx.fillRect(obj.x + 3, obj.y + 3, obj.w, obj.h);
+
+        // Body
+        ctx.fillStyle = c;
+        ctx.globalAlpha = 0.8;
+        ctx.fillRect(obj.x, obj.y, obj.w, obj.h);
+        ctx.globalAlpha = 1;
+
+        // Border
+        ctx.strokeStyle = c;
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(obj.x, obj.y, obj.w, obj.h);
+
+        // Label
+        ctx.fillStyle = '#fff';
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(obj.id, obj.x + obj.w / 2, obj.y - 5);
+
+        // Icon
+        ctx.font = '22px serif';
+        ctx.fillText(icons[obj.type] || '?', obj.x + obj.w / 2, obj.y + obj.h / 2 + 8);
+    }
+
+    _drawAgent(ctx, agent, time, game) {
+        const x = agent.x, y = agent.y;
+
+        // Selection ring
+        if (game.selectedAgent === agent) {
+            ctx.strokeStyle = '#e94560';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(x, y, AGENT_RADIUS + 5, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+
+        // Busy pulsing ring
+        if (agent.busy) {
+            const pulse = 0.4 + 0.3 * Math.sin(time * 6);
+            ctx.strokeStyle = `rgba(83,216,251,${pulse})`;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(x, y, AGENT_RADIUS + 8, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+
+        // Body shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.beginPath();
+        ctx.arc(x + 2, y + 2, AGENT_RADIUS, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Body
+        const bobY = agent.isMoving ? Math.sin(time * 12) * 2 : 0;
+        ctx.fillStyle = agent.color;
+        ctx.beginPath();
+        ctx.arc(x, y + bobY, AGENT_RADIUS, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Direction indicator
+        const dirX = x + Math.cos(agent.facing) * (AGENT_RADIUS + 4);
+        const dirY = y + bobY + Math.sin(agent.facing) * (AGENT_RADIUS + 4);
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(dirX, dirY, 3, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Label
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(agent.label, x, y - AGENT_RADIUS - 10);
+
+        // Action label
+        if (agent.currentAction) {
+            ctx.fillStyle = '#53d8fb';
+            ctx.font = '9px sans-serif';
+            ctx.fillText(agent.currentAction, x, y - AGENT_RADIUS - 1);
+        }
+
+        // Mood emoji
+        const moods = { happy: '\u{1F60A}', fine: '\u{1F610}', sad: '\u{1F622}', miserable: '\u{1F62D}' };
+        ctx.font = '12px serif';
+        ctx.fillText(moods[agent.state.moodLabel] || '', x + AGENT_RADIUS + 6, y + 4);
+    }
+}
+
+// ================================================================
+//  MODULE: UIController
+// ================================================================
 class UIController {
     constructor(game) {
         this.game = game;
-        this.placementMode = null;  // 'kitchen' | 'bed' | 'bathroom' | null
-        this._bindPlaceButtons();
-        this._bindActionButtons();
+        this.placementMode = null;
+        this.interactA = null;    // Agent
+        this.interactB = null;    // Agent
+
+        this._bindPlacement();
+        this._bindAddAgent();
+        this._bindCanvas();
+        this._buildActionButtons();
+        this._buildInteractionButtons();
     }
 
-    _bindPlaceButtons() {
-        document.querySelectorAll('.place-btn').forEach(btn => {
+    // ── PLACEMENT ──
+    _bindPlacement() {
+        document.querySelectorAll('.btn-place').forEach(btn => {
             btn.addEventListener('click', () => {
                 const type = btn.dataset.place;
                 if (this.placementMode === type) {
-                    // Toggle off
                     this.placementMode = null;
                     btn.classList.remove('active');
                     document.getElementById('placement-hint').style.display = 'none';
                 } else {
-                    // Deactivate others, activate this
-                    document.querySelectorAll('.place-btn').forEach(b => b.classList.remove('active'));
+                    document.querySelectorAll('.btn-place').forEach(b => b.classList.remove('active'));
                     this.placementMode = type;
                     btn.classList.add('active');
                     document.getElementById('placement-hint').style.display = 'block';
@@ -723,174 +987,418 @@ class UIController {
         });
     }
 
-    _bindActionButtons() {
-        document.querySelectorAll('.action-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const actionName = btn.dataset.action;
-                this.game.agent.executeAction(actionName);
-            });
+    _bindAddAgent() {
+        document.getElementById('btn-add-agent').addEventListener('click', () => {
+            this.game.addAgent();
+            this.refreshAgentChips();
         });
     }
 
-    // Called when user clicks on the canvas
-    handleCanvasClick(worldPos) {
-        if (!this.placementMode || !worldPos) return false;
+    // ── CANVAS CLICK ──
+    _bindCanvas() {
+        const canvas = document.getElementById('canvas');
+        canvas.addEventListener('click', e => {
+            const rect = canvas.getBoundingClientRect();
+            const wp = this.game.renderer.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
 
-        const snapped = this.game.renderer.snapToGrid(worldPos.x, worldPos.z);
-        const half = ROOM_SIZE / 2 - OBJECT_SIZE / 2;
+            // Placement mode?
+            if (this.placementMode) {
+                // Snap to grid
+                const gx = Math.round(wp.x / 40) * 40 - OBJ_SIZE / 2;
+                const gy = Math.round(wp.y / 40) * 40 - OBJ_SIZE / 2;
+                if (gx < ROOM_PAD || gy < ROOM_PAD ||
+                    gx + OBJ_SIZE > ROOM_W - ROOM_PAD || gy + OBJ_SIZE > ROOM_H - ROOM_PAD) {
+                    this.game.log('Outside room bounds', 'warn');
+                    return;
+                }
+                this.game.placeObject(this.placementMode, gx, gy);
+                this.placementMode = null;
+                document.querySelectorAll('.btn-place').forEach(b => b.classList.remove('active'));
+                document.getElementById('placement-hint').style.display = 'none';
+                return;
+            }
 
-        // Check bounds
-        if (Math.abs(snapped.x) > half || Math.abs(snapped.z) > half) {
-            this.game.log('Cannot place outside room!', 'state');
-            return false;
-        }
-
-        this.game.placeObject(this.placementMode, snapped.x, snapped.z);
-
-        // Exit placement mode
-        this.placementMode = null;
-        document.querySelectorAll('.place-btn').forEach(b => b.classList.remove('active'));
-        document.getElementById('placement-hint').style.display = 'none';
-        return true;
+            // Click on agent to select?
+            for (const agent of this.game.agents) {
+                if (dist(wp, agent) < AGENT_RADIUS + 6) {
+                    this.game.selectedAgent = agent;
+                    document.getElementById('hud').textContent = `Selected: ${agent.label}`;
+                    this.refreshAgentChips();
+                    return;
+                }
+            }
+        });
     }
 
-    // Refresh the state display panel
-    updateStateDisplay(stateJSON) {
-        const container = document.getElementById('state-display');
+    // ── ACTION BUTTONS (left panel) ──
+    _buildActionButtons() {
+        const wrap = document.getElementById('action-buttons');
+        const actions = [
+            'go_to_kitchen', 'go_to_bed', 'go_to_bathroom',
+            'eat', 'sleep', 'use_toilet', 'idle', 'wander'
+        ];
+        actions.forEach(name => {
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-action';
+            btn.textContent = name.replace(/_/g, ' ');
+            btn.addEventListener('click', () => {
+                const agent = this.game.selectedAgent;
+                if (!agent) { this.game.log('Select an agent first', 'warn'); return; }
+                agent.executeAction(name);
+            });
+            wrap.appendChild(btn);
+        });
+    }
+
+    // ── INTERACTION BUTTONS (right panel) ──
+    _buildInteractionButtons() {
+        const wrap = document.getElementById('interact-buttons');
+        const interactions = this.game.interactionSystem.getAvailableInteractions();
+        interactions.forEach(name => {
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-interact btn-small';
+            btn.textContent = name.replace(/_/g, ' ');
+            btn.addEventListener('click', () => {
+                if (!this.interactA || !this.interactB) {
+                    this.game.log('Select Agent A and Agent B', 'warn');
+                    return;
+                }
+                if (this.interactA === this.interactB) {
+                    this.game.log('Cannot interact with self', 'warn');
+                    return;
+                }
+                this.game.interactionSystem.execute(name, this.interactA, this.interactB);
+            });
+            wrap.appendChild(btn);
+        });
+    }
+
+    // ── AGENT CHIPS (selectors) ──
+    refreshAgentChips() {
+        this._renderChips('agent-select-left', agent => {
+            this.game.selectedAgent = agent;
+            document.getElementById('hud').textContent = `Selected: ${agent.label}`;
+            this.refreshAgentChips();
+        }, this.game.selectedAgent);
+
+        this._renderChips('interact-a-chips', agent => {
+            this.interactA = agent;
+            this.refreshAgentChips();
+            this._updateRelDisplay();
+        }, this.interactA);
+
+        this._renderChips('interact-b-chips', agent => {
+            this.interactB = agent;
+            this.refreshAgentChips();
+            this._updateRelDisplay();
+        }, this.interactB);
+    }
+
+    _renderChips(containerId, onClick, selected) {
+        const wrap = document.getElementById(containerId);
+        wrap.innerHTML = '';
+        this.game.agents.forEach(agent => {
+            const chip = document.createElement('span');
+            chip.className = 'agent-chip' + (agent === selected ? ' selected' : '');
+            chip.innerHTML = `<span class="agent-dot" style="background:${agent.color}"></span>${agent.label}`;
+            chip.addEventListener('click', () => onClick(agent));
+            wrap.appendChild(chip);
+        });
+    }
+
+    _updateRelDisplay() {
+        const el = document.getElementById('relationship-display');
+        if (!this.interactA || !this.interactB || this.interactA === this.interactB) {
+            el.textContent = 'Select two different agents';
+            return;
+        }
+        const rel = this.game.relationships;
+        const aToB = Math.round(rel.get(this.interactA.id, this.interactB.id));
+        const bToA = Math.round(rel.get(this.interactB.id, this.interactA.id));
+        el.innerHTML = `
+            ${this.interactA.label} → ${this.interactB.label}: <b>${aToB}</b>/100<br>
+            ${this.interactB.label} → ${this.interactA.label}: <b>${bToA}</b>/100
+        `;
+    }
+
+    // ── STATE DISPLAY (called every frame) ──
+    updateStateDisplay() {
+        const agent = this.game.selectedAgent;
+        const el = document.getElementById('state-display');
+        if (!agent) { el.innerHTML = '<span style="color:#555">No agent selected</span>'; return; }
+
+        const s = agent.state.toJSON();
+        const p = agent.personality.toJSON();
         const barColor = (key, val) => {
-            if (key === 'hunger') val = 100 - val;  // hunger is inverted (high = bad)
-            if (val > 60) return '#95e1d3';
-            if (val > 30) return '#f4a261';
-            return '#e94560';
+            let v = val;
+            if (key === 'hunger') v = 100 - val;
+            return v > 60 ? '#95e1d3' : v > 30 ? '#f4a261' : '#e94560';
         };
 
-        container.innerHTML = Object.entries(stateJSON).map(([key, val]) => {
-            if (key === 'mood') {
-                const emoji = val === 'happy' ? '😊' : val === 'neutral' ? '😐' : '😢';
-                return `<div class="state-row"><span>Mood</span><span>${emoji} ${val}</span></div>`;
-            }
-            return `
-                <div class="state-row">
-                    <span>${key.charAt(0).toUpperCase() + key.slice(1)}</span>
-                    <div class="state-bar-bg">
-                        <div class="state-bar" style="width:${val}%;background:${barColor(key, val)}"></div>
-                    </div>
-                    <span>${val}</span>
-                </div>`;
-        }).join('');
+        const needs = ['energy','hunger','hygiene','comfort','mood'];
+        let html = `<div class="state-block"><b style="color:${agent.color}">${agent.label}</b>
+            ${agent.currentAction ? `<span style="color:#53d8fb;margin-left:6px;font-size:10px">${agent.currentAction}</span>` : ''}
+            <span style="float:right;font-size:10px">${s.moodLabel}</span>`;
+        needs.forEach(k => {
+            html += `<div class="state-row">
+                <span class="state-label">${k}</span>
+                <div class="bar-bg"><div class="bar-fill" style="width:${s[k]}%;background:${barColor(k, s[k])}"></div></div>
+                <span class="state-val">${s[k]}</span>
+            </div>`;
+        });
+        html += '</div>';
+
+        // Personality
+        html += '<div class="state-block" style="margin-top:4px">';
+        html += '<span style="color:#888;font-size:10px">Personality</span>';
+        for (const [k, v] of Object.entries(p)) {
+            html += `<div class="trait-row">
+                <span class="state-label">${k}</span>
+                <div class="bar-bg"><div class="bar-fill" style="width:${v}%;background:#555"></div></div>
+                <span class="state-val">${v}</span>
+            </div>`;
+        }
+        html += '</div>';
+
+        el.innerHTML = html;
+
+        // Target state (right panel)
+        const tEl = document.getElementById('target-state-display');
+        const tAgent = this.interactB;
+        if (!tAgent) { tEl.innerHTML = '<span style="color:#555">&mdash;</span>'; return; }
+        const ts = tAgent.state.toJSON();
+        let tHtml = `<b style="color:${tAgent.color}">${tAgent.label}</b> <span style="font-size:10px">${ts.moodLabel}</span>`;
+        needs.forEach(k => {
+            tHtml += `<div class="state-row">
+                <span class="state-label">${k}</span>
+                <div class="bar-bg"><div class="bar-fill" style="width:${ts[k]}%;background:${barColor(k, ts[k])}"></div></div>
+                <span class="state-val">${ts[k]}</span>
+            </div>`;
+        });
+        tEl.innerHTML = tHtml;
+
+        // Update relationship display
+        this._updateRelDisplay();
     }
 }
 
-// ============================================================================
-//  MODULE: Game — Main controller that ties everything together
-// ============================================================================
+// ================================================================
+//  MODULE: Game — main orchestrator
+// ================================================================
 class Game {
     constructor() {
-        this.objects = [];       // WorldObject[]
-        this.agent   = null;     // Agent
-        this.renderer = null;    // Renderer
-        this.actionSystem = null;
-        this.ui = null;
-        this._clock = new THREE.Clock();
+        this.objects       = [];
+        this.agents        = [];
+        this.selectedAgent = null;
+        this.relationships = new RelationshipMap();
+        this.renderer      = null;
+        this.actionSystem  = null;
+        this.interactionSystem = null;
+        this.autonomy      = null;
+        this.ui            = null;
+        this._lastTime     = 0;
     }
 
     init() {
-        const container = document.getElementById('canvas-container');
+        // Systems
+        this.renderer          = new Renderer(document.getElementById('canvas'));
+        this.actionSystem      = new ActionSystem(this);
+        this.interactionSystem = new InteractionSystem(this);
+        this.autonomy          = new AutonomySystem(this);
+        this._registerActions();
 
-        // Initialize systems
-        this.renderer     = new Renderer(container);
-        this.actionSystem = new ActionSystem(this);
-        this.ui           = new UIController(this);
+        // Start with 2 agents
+        this.addAgent(200, 300);
+        this.addAgent(500, 300);
+        this.selectedAgent = this.agents[0];
 
-        // Create agent at center
-        this.agent = new Agent(0, 0);
-        this.renderer.createAgentMesh(this.agent);
+        // UI last (needs other systems ready)
+        this.ui = new UIController(this);
+        this.ui.refreshAgentChips();
 
-        // Canvas click handler
-        this.renderer.renderer.domElement.addEventListener('click', (e) => {
-            const worldPos = this.renderer.screenToWorld(e.clientX, e.clientY);
-            this.ui.handleCanvasClick(worldPos);
-        });
-
-        this.log('Simulation ready. Place objects, then use actions.', 'action');
-        this._loop();
+        this.log('Engine ready. Place objects, select agents, trigger actions.', 'act');
+        requestAnimationFrame(t => this._loop(t));
     }
 
-    // Place a new object in the room
-    placeObject(type, x, z) {
-        const obj = new WorldObject(type, x, z);
+    addAgent(x, y) {
+        if (!x) x = randRange(ROOM_PAD + 40, ROOM_W - ROOM_PAD - 40);
+        if (!y) y = randRange(ROOM_PAD + 40, ROOM_H - ROOM_PAD - 40);
+        const agent = new Agent(x, y);
+        this.agents.push(agent);
+        this.log(`${agent.label} joined (${agent.personality.toJSON().socialness}S ${agent.personality.toJSON().aggression}A)`, 'act');
+        if (this.ui) this.ui.refreshAgentChips();
+        return agent;
+    }
+
+    placeObject(type, x, y) {
+        const obj = new WorldObject(type, x, y);
         this.objects.push(obj);
-        this.renderer.createObjectMesh(obj);
-        this.log(`Placed ${obj.id} at (${x}, ${z})`, 'action');
+        this.log(`Placed ${obj.id}`, 'act');
         return obj;
     }
 
-    // Find the first object of a given type
-    findObject(type) {
-        return this.objects.find(o => o.type === type) || null;
-    }
+    findObject(type) { return this.objects.find(o => o.type === type) || null; }
+    findObjectById(id) { return this.objects.find(o => o.id === id) || null; }
 
-    // Find object by exact ID
-    findObjectById(id) {
-        return this.objects.find(o => o.id === id) || null;
-    }
-
-    // Logging
-    log(message, type = '') {
-        const el = document.getElementById('activity-log');
-        const entry = document.createElement('div');
-        entry.className = `log-entry ${type}`;
-        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        entry.textContent = `[${time}] ${message}`;
-        el.appendChild(entry);
+    log(msg, cls = '') {
+        const el = document.getElementById('log');
+        const t = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+        const d = document.createElement('div');
+        d.className = 'l ' + cls;
+        d.textContent = `[${t}] ${msg}`;
+        el.appendChild(d);
+        if (el.children.length > 200) el.removeChild(el.firstChild);
         el.scrollTop = el.scrollHeight;
     }
 
-    updateStatus(text) {
-        document.getElementById('status-bar').textContent = text;
+    // ── Register all object-related actions ──
+    _registerActions() {
+        const wait = ms => new Promise(r => setTimeout(r, ms));
+        const goTo = async (agent, game, type) => {
+            const obj = game.findObject(type);
+            if (!obj) { game.log(`No ${type} placed!`, 'warn'); return null; }
+            const pt = obj.interactionPoint;
+            await agent.moveTo(pt.x, pt.y);
+            return obj;
+        };
+
+        this.actionSystem.register('go_to_kitchen', {
+            description: 'Walk to the kitchen', target: 'kitchen',
+            fn: async (agent, game) => { await goTo(agent, game, 'kitchen'); }
+        });
+        this.actionSystem.register('go_to_bed', {
+            description: 'Walk to the bed', target: 'bed',
+            fn: async (agent, game) => { await goTo(agent, game, 'bed'); }
+        });
+        this.actionSystem.register('go_to_bathroom', {
+            description: 'Walk to the bathroom', target: 'bathroom',
+            fn: async (agent, game) => { await goTo(agent, game, 'bathroom'); }
+        });
+
+        this.actionSystem.register('eat', {
+            description: 'Eat at the kitchen to reduce hunger', target: 'kitchen',
+            fn: async (agent, game) => {
+                const obj = await goTo(agent, game, 'kitchen');
+                if (!obj) return;
+                game.log(`${agent.label} is eating...`, 'act');
+                await wait(2000);
+                agent.state.modify({ hunger: -30, energy: 5, comfort: 3 });
+                game.log(`${agent.label} finished eating`, 'act');
+            }
+        });
+
+        this.actionSystem.register('sleep', {
+            description: 'Sleep in bed to restore energy', target: 'bed',
+            fn: async (agent, game) => {
+                const obj = await goTo(agent, game, 'bed');
+                if (!obj) return;
+                game.log(`${agent.label} is sleeping...`, 'act');
+                await wait(3000);
+                agent.state.modify({ energy: 40, comfort: 10, hunger: 5 });
+                game.log(`${agent.label} woke up rested`, 'act');
+            }
+        });
+
+        this.actionSystem.register('use_toilet', {
+            description: 'Use bathroom to improve hygiene', target: 'bathroom',
+            fn: async (agent, game) => {
+                const obj = await goTo(agent, game, 'bathroom');
+                if (!obj) return;
+                game.log(`${agent.label} is freshening up...`, 'act');
+                await wait(1500);
+                agent.state.modify({ hygiene: 35, comfort: 5 });
+                game.log(`${agent.label} feels cleaner`, 'act');
+            }
+        });
+
+        this.actionSystem.register('idle', {
+            description: 'Stand still briefly', target: null,
+            fn: async (agent, game) => {
+                game.log(`${agent.label} is idling...`);
+                await wait(1200);
+            }
+        });
+
+        this.actionSystem.register('wander', {
+            description: 'Walk to a random spot', target: null,
+            fn: async (agent, game) => {
+                const margin = ROOM_PAD + 30;
+                const rx = randRange(margin, ROOM_W - margin);
+                const ry = randRange(margin, ROOM_H - margin);
+                await agent.moveTo(rx, ry);
+            }
+        });
     }
 
-    // ── Main game loop ──
-    _loop() {
-        requestAnimationFrame(() => this._loop());
+    // ── GAME LOOP ──
+    _loop(time) {
+        requestAnimationFrame(t => this._loop(t));
+        const dt = Math.min((time - this._lastTime) / 1000, 0.1);
+        this._lastTime = time;
+        const now = performance.now();
 
-        const dt = this._clock.getDelta();
-        const time = this._clock.getElapsedTime();
+        // Update each agent
+        for (const agent of this.agents) {
+            agent.updateMovement(dt);
+            agent.state.tick(dt);
+            this.autonomy.update(agent, now);
+        }
 
-        // Update agent movement
-        this.agent.updateMovement(dt);
-
-        // Passive state decay
-        this.agent.state.tick(dt / 10);  // slowed down for playability
-
-        // Update visuals
-        this.renderer.updateAgent(this.agent, time);
-        this.ui.updateStateDisplay(this.agent.state.toJSON());
+        // Proximity comfort boost
+        for (let i = 0; i < this.agents.length; i++) {
+            for (let j = i + 1; j < this.agents.length; j++) {
+                const a = this.agents[i], b = this.agents[j];
+                if (dist(a, b) < PROXIMITY) {
+                    const boost = 0.3 * dt;
+                    a.state.modify({ comfort: boost * (a.personality.socialness / 50) });
+                    b.state.modify({ comfort: boost * (b.personality.socialness / 50) });
+                }
+            }
+        }
 
         // Render
-        this.renderer.render();
+        this.renderer.draw(this, time / 1000);
+        this.ui.updateStateDisplay();
     }
 }
 
-// ============================================================================
+// ================================================================
 //  BOOTSTRAP
-// ============================================================================
+// ================================================================
 const game = new Game();
 game.init();
 
-// ── Expose global API for external access (LLM integration point) ──
-// An AI system can call: game.agent.executeAction("eat")
-// Or: game.actionSystem.getAvailableActions()  → ["go_to_kitchen", "sleep", ...]
+// ── Global API for future LLM integration ──
 window.simAPI = {
-    executeAction:     (name) => game.agent.executeAction(name),
-    getActions:        ()     => game.actionSystem.getAvailableActions(),
-    getState:          ()     => game.agent.state.toJSON(),
-    placeObject:       (type, x, z) => game.placeObject(type, x, z),
-    getObjects:        ()     => game.objects.map(o => ({ id: o.id, type: o.type, x: o.x, z: o.z })),
-    isAgentBusy:       ()     => game.agent.busy,
-    getCurrentAction:  ()     => game.agent.currentAction,
+    // Execute action on an agent by id or index
+    executeAction: (agentId, actionName) => {
+        const a = typeof agentId === 'number'
+            ? game.agents[agentId]
+            : game.agents.find(x => x.id === agentId);
+        if (!a) return Promise.resolve(false);
+        return a.executeAction(actionName);
+    },
+    // Execute interaction between two agents
+    interact: (actorId, targetId, interactionName) => {
+        const a = game.agents.find(x => x.id === actorId);
+        const b = game.agents.find(x => x.id === targetId);
+        if (!a || !b) return Promise.resolve(false);
+        return game.interactionSystem.execute(interactionName, a, b);
+    },
+    // Query helpers
+    getAgents:     () => game.agents.map(a => ({ id: a.id, label: a.label, x: Math.round(a.x), y: Math.round(a.y), busy: a.busy, state: a.state.toJSON(), personality: a.personality.toJSON() })),
+    getObjects:    () => game.objects.map(o => ({ id: o.id, type: o.type, x: o.x, y: o.y })),
+    getActions:    () => game.actionSystem.getAvailableActions(),
+    getInteractions: () => game.interactionSystem.getAvailableInteractions(),
+    getRelationship: (a, b) => game.relationships.get(a, b),
+    addAgent:      () => { const a = game.addAgent(); return a.id; },
+    placeObject:   (type, x, y) => { const o = game.placeObject(type, x, y); return o.id; },
+    // Toggle autonomy per agent
+    setAutonomy:   (agentId, on) => {
+        const a = game.agents.find(x => x.id === agentId);
+        if (a) a._isAutonomous = on;
+    },
 };
-
 </script>
 </body>
 </html>
