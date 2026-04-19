@@ -1,0 +1,1540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Life Simulation Engine v2 — 3D</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0a0a14;color:#ccc;display:flex;height:100vh;overflow:hidden;font-size:12px}
+
+.panel{width:265px;background:#111120;display:flex;flex-direction:column;overflow-y:auto;padding:8px;gap:5px;flex-shrink:0}
+.panel::-webkit-scrollbar{width:3px}.panel::-webkit-scrollbar-thumb{background:#333;border-radius:2px}
+.panel-left{border-right:1px solid #1e1e35}.panel-right{border-left:1px solid #1e1e35}
+.sec{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1.1px;color:#e94560;padding:5px 0 3px;border-bottom:1px solid #1e1e35;margin-top:3px}
+.btn{padding:5px 8px;border:1px solid #1e1e35;background:#14142a;color:#bbb;border-radius:4px;cursor:pointer;font-size:11px;text-align:left;transition:background .12s,border-color .12s}
+.btn:hover{background:#1e1e3a;border-color:#e94560;color:#eee}.btn:active{transform:scale(.97)}
+.btn:disabled{opacity:.3;cursor:not-allowed}.btn.active{background:#e94560;color:#fff;border-color:#e94560}
+.btn-place{border-left:3px solid #53d8fb}.btn-action{border-left:3px solid #e94560}
+.btn-interact{border-left:3px solid #95e1d3}.btn-add{border-left:3px solid #f4a261}
+.btn-room{border-left:3px solid #9b59b6}.btn-export{border-left:3px solid #f1c40f;background:#1a1a10}
+
+.sb{background:#0a0a12;border:1px solid #1e1e35;border-radius:4px;padding:6px;margin-bottom:2px}
+.sr{display:flex;align-items:center;margin-bottom:3px;font-size:10px}
+.sr:last-child{margin-bottom:0}
+.sl{width:52px;color:#666;font-size:9px}.bbg{flex:1;height:5px;background:#08080f;border-radius:3px;margin:0 4px;overflow:hidden}
+.bf{height:100%;border-radius:3px;transition:width .3s}.sv{width:22px;text-align:right;font-size:8px;color:#666}
+
+.chip{display:inline-flex;align-items:center;gap:3px;padding:3px 7px;border-radius:3px;border:1px solid #1e1e35;cursor:pointer;font-size:10px;margin:1px}
+.chip:hover{border-color:#e94560}.chip.sel{border-color:#e94560;background:#1e0a1a}
+.dot{width:7px;height:7px;border-radius:50%}
+
+#vp{flex:1;position:relative;background:#060610;overflow:hidden}
+#vp canvas{display:block}
+#labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.lbl{position:absolute;transform:translate(-50%,-100%);background:rgba(14,14,28,0.75);padding:2px 6px;border-radius:3px;font-size:9px;color:#fff;white-space:nowrap;border:1px solid rgba(255,255,255,0.1);text-align:center}
+.lbl .act{display:block;color:#53d8fb;font-size:8px}
+.lbl .mood{margin-left:3px}
+
+#hud{position:absolute;top:8px;left:8px;background:rgba(14,14,28,.88);padding:5px 10px;border-radius:4px;font-size:10px;border:1px solid #1e1e35;pointer-events:none;z-index:5}
+#hint{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);background:rgba(233,69,96,.85);padding:5px 16px;border-radius:4px;font-size:11px;display:none;pointer-events:none;z-index:5}
+#zoom-display{position:absolute;top:8px;right:8px;background:rgba(14,14,28,.88);padding:5px 10px;border-radius:4px;font-size:10px;border:1px solid #1e1e35;pointer-events:none;z-index:5}
+#loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(6,6,16,0.9);color:#e94560;font-size:14px;font-weight:600;z-index:20}
+
+#lw{flex:1;min-height:0;display:flex;flex-direction:column}
+#log{flex:1;overflow-y:auto;font-size:8px;background:#08080f;border:1px solid #1e1e35;border-radius:3px;padding:4px;line-height:1.5}
+#log .l{color:#444}#log .l.act{color:#53d8fb}#log .l.warn{color:#f4a261}#log .l.int{color:#95e1d3}
+
+.row{display:flex;gap:4px;flex-wrap:wrap}
+</style>
+
+<script type="importmap">
+{
+    "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+    }
+}
+</script>
+</head>
+<body>
+
+<div class="panel panel-left">
+    <div class="sec">Rooms</div>
+    <div class="row">
+        <button class="btn btn-room" data-room="living_room">+ Living Room</button>
+        <button class="btn btn-room" data-room="bedroom">+ Bedroom</button>
+        <button class="btn btn-room" data-room="kitchen_room">+ Kitchen</button>
+        <button class="btn btn-room" data-room="bathroom_room">+ Bathroom</button>
+    </div>
+    <button class="btn btn-add" id="btn-add-door">+ Add Door (click shared wall)</button>
+
+    <div class="sec">Place Objects</div>
+    <div class="row" id="object-btns">
+        <button class="btn btn-place" data-place="kitchen">&#x1F373; Kitchen</button>
+        <button class="btn btn-place" data-place="bed">&#x1F6CF; Bed</button>
+        <button class="btn btn-place" data-place="bathroom">&#x1F6BF; Bathroom</button>
+        <button class="btn btn-place" data-place="tv">&#x1F4FA; TV</button>
+        <button class="btn btn-place" data-place="console">&#x1F3AE; Console</button>
+        <button class="btn btn-place" data-place="sofa">&#x1FA91; Sofa</button>
+        <button class="btn btn-place" data-place="table">&#x1F4CB; Table</button>
+    </div>
+
+    <div class="sec">Agents</div>
+    <button class="btn btn-add" id="btn-add-agent">+ Add Agent</button>
+    <div id="agent-chips-left"></div>
+
+    <div class="sec">Manual Actions</div>
+    <div id="action-btns"></div>
+
+    <div class="sec">Selected Agent</div>
+    <div id="state-display" class="sb" style="color:#555">No agent selected</div>
+
+    <div class="sec">Export</div>
+    <button class="btn btn-export" id="btn-export">&#x1F4E5; Export Logs (JSON)</button>
+
+    <div id="lw">
+        <div class="sec">Log</div>
+        <div id="log"></div>
+    </div>
+</div>
+
+<div id="vp">
+    <div id="hud">Scroll=zoom · Right-drag=pan · Left-drag=orbit · Click=select/place</div>
+    <div id="hint">Click to place</div>
+    <div id="zoom-display">100%</div>
+    <div id="labels"></div>
+    <div id="loading">Loading character model...</div>
+</div>
+
+<div class="panel panel-right">
+    <div class="sec">Interactions</div>
+    <p style="font-size:9px;color:#555">Select Agent A → B</p>
+    <div class="sec" style="font-size:8px">Agent A</div><div id="ia-chips"></div>
+    <div style="text-align:center;color:#e94560;font-size:14px">&darr;</div>
+    <div class="sec" style="font-size:8px;margin-top:0">Agent B</div><div id="ib-chips"></div>
+    <div class="sec">Actions</div><div id="int-btns"></div>
+    <div class="sec">Relationship</div><div id="rel-display" class="sb" style="font-size:10px;color:#555">Select two agents</div>
+    <div class="sec">Agent B State</div><div id="tgt-state" class="sb" style="font-size:10px;color:#555">&mdash;</div>
+</div>
+
+<script type="module">
+"use strict";
+import * as THREE from 'three';
+import { GLTFLoader }    from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import * as SkeletonUtils  from 'three/addons/utils/SkeletonUtils.js';
+
+// ================================================================
+//  CONSTANTS — identical to engine.html (2D pixel units for logic)
+// ================================================================
+const GRID        = 40;
+const OBJ_W       = 50;
+const OBJ_H       = 50;
+const AGENT_R     = 12;
+const MOVE_SPEED  = 100;
+const PROXIMITY   = 50;
+const DOOR_WIDTH  = 30;
+const WALL_THICK  = 6;
+const AUTO_MIN    = 4000;
+const AUTO_MAX    = 6000;
+const WANDER_IDLE = 5000;
+
+// 3D scale: 1 GRID (40 px) → 1 world unit. Camera & model sized for this.
+const WORLD_SCALE   = 1 / GRID;
+const TARGET_HEIGHT = 0.9;  // desired world-space height of the GLB character
+const WALL_HEIGHT   = 0.9;  // wall height in world units
+const MODEL_PATH    = 'source/model.glb';
+
+const ROOM_DEFAULTS = {
+    living_room:   { w: 360, h: 280, color: 0x2a2a4a, label: 'Living Room' },
+    bedroom:       { w: 300, h: 240, color: 0x2a1e3a, label: 'Bedroom' },
+    kitchen_room:  { w: 280, h: 220, color: 0x2a3224, label: 'Kitchen' },
+    bathroom_room: { w: 220, h: 200, color: 0x1e2a32, label: 'Bathroom' },
+};
+
+const OBJ_DEFS = {
+    kitchen:  { icon:'\u{1F373}', color:0xf4a261, label:'Kitchen',  activity:null },
+    bed:      { icon:'\u{1F6CF}', color:0x7ec8e3, label:'Bed',      activity:null },
+    bathroom: { icon:'\u{1F6BF}', color:0x95e1d3, label:'Bathroom', activity:null },
+    tv:       { icon:'\u{1F4FA}', color:0xe67e22, label:'TV',       activity:'watch_tv' },
+    console:  { icon:'\u{1F3AE}', color:0x9b59b6, label:'Console',  activity:'play_games' },
+    sofa:     { icon:'\u{1FA91}', color:0xe74c3c, label:'Sofa',     activity:'relax' },
+    table:    { icon:'\u{1F4CB}', color:0x95a5a6, label:'Table',    activity:'sit' },
+};
+
+const AGENT_COLORS = [0xe94560,0x2ecc71,0x3498db,0xf1c40f,0x9b59b6,0xe67e22,0x1abc9c,0xe74c3c,0x00cec9,0xfd79a8];
+const hex = c => '#' + c.toString(16).padStart(6, '0');
+
+// ================================================================
+//  UTILITIES
+// ================================================================
+const clamp  = (v,lo,hi) => Math.max(lo,Math.min(hi,v));
+const dist   = (a,b) => Math.hypot(a.x-b.x, a.y-b.y);
+const randR  = (lo,hi) => lo+Math.random()*(hi-lo);
+const randI  = (lo,hi) => Math.floor(randR(lo,hi+1));
+const pick   = a => a[Math.floor(Math.random()*a.length)];
+const snap   = (v,g) => Math.round(v/g)*g;
+const rectContains = (r,px,py) => px>=r.x && px<=r.x+r.w && py>=r.y && py<=r.y+r.h;
+
+// Convert 2D simulation coords (px, py) into 3D world position (Vector3).
+const toWorld = (x, y, h=0) => new THREE.Vector3(x * WORLD_SCALE, h, y * WORLD_SCALE);
+
+// ================================================================
+//  MODULE: Room
+// ================================================================
+class Room {
+    static _n = 0;
+    constructor(type, x, y, w, h) {
+        Room._n++;
+        this.id    = `room_${Room._n}`;
+        this.type  = type;
+        this.label = ROOM_DEFAULTS[type]?.label || type;
+        this.color = ROOM_DEFAULTS[type]?.color ?? 0x1a1a2e;
+        this.x = x; this.y = y;
+        this.w = w || ROOM_DEFAULTS[type]?.w || 300;
+        this.h = h || ROOM_DEFAULTS[type]?.h || 240;
+    }
+    get cx() { return this.x + this.w/2; }
+    get cy() { return this.y + this.h/2; }
+    get right()  { return this.x + this.w; }
+    get bottom() { return this.y + this.h; }
+    contains(px,py) { return rectContains(this,px,py); }
+    innerRect() {
+        const p = WALL_THICK;
+        return { x:this.x+p, y:this.y+p, w:this.w-p*2, h:this.h-p*2 };
+    }
+}
+
+// ================================================================
+//  MODULE: Door
+// ================================================================
+class Door {
+    static _n = 0;
+    constructor(roomA_id, roomB_id, x, y, orientation) {
+        Door._n++;
+        this.id = `door_${Door._n}`;
+        this.roomA = roomA_id;
+        this.roomB = roomB_id;
+        this.x = x; this.y = y;
+        this.orientation = orientation;
+    }
+    connects(rId) { return this.roomA === rId || this.roomB === rId; }
+    otherRoom(rId) { return this.roomA === rId ? this.roomB : this.roomA; }
+}
+
+// ================================================================
+//  MODULE: WorldManager
+// ================================================================
+class WorldManager {
+    constructor() { this.rooms = []; this.doors = []; this._dirty = 0; }
+
+    addRoom(type, x, y, w, h) { const r = new Room(type,x,y,w,h); this.rooms.push(r); this._dirty++; return r; }
+    getRoom(id) { return this.rooms.find(r => r.id === id); }
+    roomAt(px, py) { return this.rooms.find(r => r.contains(px, py)); }
+
+    addDoor(roomA_id, roomB_id, x, y, orientation) {
+        const d = new Door(roomA_id, roomB_id, x, y, orientation);
+        this.doors.push(d); this._dirty++;
+        return d;
+    }
+
+    doorsForRoom(roomId) { return this.doors.filter(d => d.connects(roomId)); }
+
+    findSharedWall(rA, rB) {
+        const tol = WALL_THICK + 2;
+        if (Math.abs(rA.right - rB.x) < tol) {
+            const oy = Math.max(rA.y, rB.y);
+            const oh = Math.min(rA.bottom, rB.bottom) - oy;
+            if (oh > DOOR_WIDTH) return { x: rA.right, y: oy + oh/2, orientation: 'v' };
+        }
+        if (Math.abs(rA.x - rB.right) < tol) {
+            const oy = Math.max(rA.y, rB.y);
+            const oh = Math.min(rA.bottom, rB.bottom) - oy;
+            if (oh > DOOR_WIDTH) return { x: rA.x, y: oy + oh/2, orientation: 'v' };
+        }
+        if (Math.abs(rA.bottom - rB.y) < tol) {
+            const ox = Math.max(rA.x, rB.x);
+            const ow = Math.min(rA.right, rB.right) - ox;
+            if (ow > DOOR_WIDTH) return { x: ox + ow/2, y: rA.bottom, orientation: 'h' };
+        }
+        if (Math.abs(rA.y - rB.bottom) < tol) {
+            const ox = Math.max(rA.x, rB.x);
+            const ow = Math.min(rA.right, rB.right) - ox;
+            if (ow > DOOR_WIDTH) return { x: ox + ow/2, y: rA.y, orientation: 'h' };
+        }
+        return null;
+    }
+
+    findPath(fromRoomId, toRoomId) {
+        if (fromRoomId === toRoomId) return [];
+        const visited = new Set([fromRoomId]);
+        const queue = [[fromRoomId, []]];
+        while (queue.length) {
+            const [cur, path] = queue.shift();
+            for (const door of this.doorsForRoom(cur)) {
+                const next = door.otherRoom(cur);
+                if (visited.has(next)) continue;
+                const step = [...path, { door, roomId: next }];
+                if (next === toRoomId) return step;
+                visited.add(next);
+                queue.push([next, step]);
+            }
+        }
+        return null;
+    }
+
+    getWaypoints(fromRoomId, tx, ty) {
+        const targetRoom = this.roomAt(tx, ty);
+        if (!targetRoom) return null;
+        if (fromRoomId === targetRoom.id) return [{ x: tx, y: ty }];
+        const path = this.findPath(fromRoomId, targetRoom.id);
+        if (!path) return null;
+        const wps = [];
+        for (const step of path) wps.push({ x: step.door.x, y: step.door.y, doorId: step.door.id, enterRoom: step.roomId });
+        wps.push({ x: tx, y: ty });
+        return wps;
+    }
+
+    autoCreateDoors() {
+        for (let i = 0; i < this.rooms.length; i++) {
+            for (let j = i+1; j < this.rooms.length; j++) {
+                const rA = this.rooms[i], rB = this.rooms[j];
+                const exists = this.doors.some(d =>
+                    (d.roomA===rA.id && d.roomB===rB.id) || (d.roomA===rB.id && d.roomB===rA.id));
+                if (exists) continue;
+                const wall = this.findSharedWall(rA, rB);
+                if (wall) this.addDoor(rA.id, rB.id, wall.x, wall.y, wall.orientation);
+            }
+        }
+    }
+}
+
+// ================================================================
+//  MODULE: WorldObject
+// ================================================================
+class WorldObject {
+    static _c = {};
+    constructor(type, x, y, roomId) {
+        WorldObject._c[type] = (WorldObject._c[type] || 0) + 1;
+        this.id     = `${type}_${WorldObject._c[type]}`;
+        this.type   = type;
+        this.x = x; this.y = y;
+        this.w = OBJ_W; this.h = OBJ_H;
+        this.roomId = roomId;
+        this.occupiedBy = null;
+    }
+    get interactionPoint() { return { x: this.x + this.w/2, y: this.y + this.h + AGENT_R + 4 }; }
+    get isOccupied() { return this.occupiedBy !== null; }
+    get def() { return OBJ_DEFS[this.type]; }
+}
+
+// ================================================================
+//  MODULE: Personality
+// ================================================================
+class Personality {
+    constructor(o={}) {
+        this.socialness = o.socialness ?? randI(20,80);
+        this.aggression = o.aggression ?? randI(10,60);
+        this.laziness   = o.laziness   ?? randI(10,70);
+        this.curiosity  = o.curiosity  ?? randI(20,80);
+    }
+    toJSON() { return {socialness:this.socialness,aggression:this.aggression,laziness:this.laziness,curiosity:this.curiosity}; }
+}
+
+// ================================================================
+//  MODULE: StateSystem
+// ================================================================
+class StateSystem {
+    constructor() {
+        this.energy  = randR(60,90);
+        this.hunger  = randR(10,40);
+        this.hygiene = randR(60,90);
+        this.comfort = randR(50,80);
+        this.boredom = randR(10,40);
+        this.mood    = 100;
+    }
+    modify(c) { for(const[k,v]of Object.entries(c)) if(k in this) this[k]+=v; this._cl(); this._dm(); }
+    tick(dt) {
+        this.energy -= 0.6*dt; this.hunger += 0.5*dt;
+        this.hygiene -= 0.3*dt; this.comfort -= 0.15*dt;
+        this.boredom += 0.7*dt;
+        this._cl(); this._dm();
+    }
+    _cl() {
+        this.energy=clamp(this.energy,0,100); this.hunger=clamp(this.hunger,0,100);
+        this.hygiene=clamp(this.hygiene,0,100); this.comfort=clamp(this.comfort,0,100);
+        this.boredom=clamp(this.boredom,0,100); this.mood=clamp(this.mood,0,100);
+    }
+    _dm() {
+        this.mood = clamp(
+            0.25*this.energy + 0.25*(100-this.hunger) + 0.10*this.hygiene +
+            0.15*this.comfort + 0.25*(100-this.boredom), 0, 100);
+    }
+    get moodLabel() { return this.mood>75?'happy':this.mood>50?'fine':this.mood>30?'sad':'miserable'; }
+    toJSON() {
+        return { energy:Math.round(this.energy), hunger:Math.round(this.hunger),
+            hygiene:Math.round(this.hygiene), comfort:Math.round(this.comfort),
+            boredom:Math.round(this.boredom), mood:Math.round(this.mood), moodLabel:this.moodLabel };
+    }
+}
+
+// ================================================================
+//  MODULE: RelationshipMap
+// ================================================================
+class RelationshipMap {
+    constructor(){this._s={}}
+    _k(a,b){return a+'::'+b}
+    get(a,b){return this._s[this._k(a,b)]??50}
+    modify(a,b,d){const k=this._k(a,b);this._s[k]=clamp((this._s[k]??50)+d,0,100)}
+    modifyBoth(a,b,d){this.modify(a,b,d);this.modify(b,a,d)}
+}
+
+// ================================================================
+//  MODULE: LogSystem
+// ================================================================
+class LogSystem {
+    constructor() { this.events = []; this._startTime = Date.now(); }
+    record(agent, action, target, details) {
+        const ev = {
+            time: ((Date.now() - this._startTime) / 1000).toFixed(1),
+            timestamp: new Date().toISOString(),
+            agent: agent?.id || null,
+            agentLabel: agent?.label || null,
+            action, target: target || null, details: details || null,
+        };
+        this.events.push(ev);
+        return ev;
+    }
+    export() {
+        return JSON.stringify({ exportedAt: new Date().toISOString(), eventCount: this.events.length, events: this.events }, null, 2);
+    }
+}
+
+// ================================================================
+//  MODULE: Agent — identical logic to 2D engine, coords are 2D
+// ================================================================
+class Agent {
+    static _n = 0;
+    constructor(x, y, roomId) {
+        Agent._n++;
+        this.id    = `agent_${Agent._n}`;
+        this.label = `Agent ${Agent._n}`;
+        this.colorHex = AGENT_COLORS[(Agent._n-1) % AGENT_COLORS.length];
+        this.color = hex(this.colorHex);
+        this.x = x; this.y = y;
+        this.targetX = x; this.targetY = y;
+        this.facing = 0;
+        this.currentRoom = roomId;
+
+        this.state       = new StateSystem();
+        this.personality = new Personality();
+
+        this.busy = false;
+        this.currentAction = null;
+        this._moveResolve = null;
+
+        this._lastActionTime = performance.now();
+        this._autoInterval = randR(AUTO_MIN, AUTO_MAX);
+        this._lastIdleStart = performance.now();
+        this._isAutonomous = true;
+    }
+
+    get isMoving() { return Math.hypot(this.targetX-this.x, this.targetY-this.y) > 0.8; }
+
+    async navigateTo(tx, ty) {
+        const wps = game.world.getWaypoints(this.currentRoom, tx, ty);
+        if (!wps) { game.log(`${this.label}: no path!`, 'warn'); return; }
+        for (const wp of wps) {
+            this.targetX = wp.x; this.targetY = wp.y;
+            await new Promise(resolve => {
+                if (Math.hypot(this.targetX-this.x, this.targetY-this.y) < 1) { resolve(); return; }
+                this._moveResolve = resolve;
+            });
+            if (wp.enterRoom) this.currentRoom = wp.enterRoom;
+        }
+    }
+
+    moveTo(x, y) {
+        this.targetX = x; this.targetY = y;
+        return new Promise(resolve => {
+            if (Math.hypot(this.targetX-this.x, this.targetY-this.y) < 1) { resolve(); return; }
+            this._moveResolve = resolve;
+        });
+    }
+
+    updateMovement(dt) {
+        const dx = this.targetX - this.x;
+        const dy = this.targetY - this.y;
+        const d = Math.hypot(dx, dy);
+        if (d < 0.8) {
+            if (this._moveResolve) { const r=this._moveResolve; this._moveResolve=null; r(); }
+            return;
+        }
+        const step = Math.min(MOVE_SPEED * dt, d);
+        this.x += (dx/d)*step;
+        this.y += (dy/d)*step;
+        this.facing = Math.atan2(dy,dx);  // kept for parity; 3D rotation computed in SceneManager
+    }
+
+    async executeAction(name, ctx) {
+        if (this.busy) return false;
+        return game.actionSystem.execute(name, this, ctx);
+    }
+    async performAction(n,c) { return this.executeAction(n,c); }
+    async decideNextAction(context) { return null; }
+}
+
+// ================================================================
+//  MODULE: ActionSystem
+// ================================================================
+class ActionSystem {
+    constructor(g) { this.game=g; this.actions={}; }
+    register(n,d) { this.actions[n]=d; }
+    getAvailableActions() { return Object.keys(this.actions); }
+    async execute(name, agent, ctx) {
+        const a = this.actions[name];
+        if (!a) { this.game.log(`Unknown: ${name}`,'warn'); return false; }
+        agent.busy = true;
+        agent.currentAction = name;
+        agent._lastActionTime = performance.now();
+        this.game.log(`${agent.label}: ${name}`, 'act');
+        this.game.logSystem.record(agent, name, a.target);
+        try { await a.fn(agent, this.game, ctx); }
+        catch(e) { this.game.log(`Error: ${e.message}`,'warn'); }
+        agent.busy = false;
+        agent.currentAction = null;
+        agent._lastActionTime = performance.now();
+        agent._lastIdleStart = performance.now();
+        return true;
+    }
+}
+
+// ================================================================
+//  MODULE: InteractionSystem
+// ================================================================
+class InteractionSystem {
+    constructor(g) { this.game=g; this.interactions={}; this._init(); }
+    register(n,d) { this.interactions[n]=d; }
+    getAvailableInteractions() { return Object.keys(this.interactions); }
+
+    async execute(name, actor, target) {
+        const int = this.interactions[name];
+        if (!int) return false;
+        if (actor.busy) { this.game.log(`${actor.label} busy`,'warn'); return false; }
+        actor.busy = true;
+        actor.currentAction = `${name} → ${target.label}`;
+        this.game.log(`${actor.label} → ${target.label}: ${name}`, 'int');
+        this.game.logSystem.record(actor, name, target.id, { targetAgent: target.id });
+        if (dist(actor, target) > PROXIMITY) {
+            const ang = Math.atan2(target.y-actor.y, target.x-actor.x);
+            await actor.navigateTo(target.x - Math.cos(ang)*PROXIMITY*0.5, target.y - Math.sin(ang)*PROXIMITY*0.5);
+        }
+        try { await int.fn(actor, target, this.game); }
+        catch(e) { this.game.log(`Error: ${e.message}`,'warn'); }
+        actor.busy = false; actor.currentAction = null;
+        actor._lastActionTime = performance.now();
+        actor._lastIdleStart = performance.now();
+        return true;
+    }
+
+    _init() {
+        const wait = ms => new Promise(r=>setTimeout(r,ms));
+        const rel = () => this.game.relationships;
+        this.register('greet',      { fn: async(a,b,g)=>{ await wait(800); rel().modifyBoth(a.id,b.id,3); a.state.modify({comfort:5}); b.state.modify({comfort:3}); g.log(`${a.label} waved at ${b.label}`,'int'); }});
+        this.register('talk',       { fn: async(a,b,g)=>{ await wait(1500); rel().modifyBoth(a.id,b.id,5); a.state.modify({comfort:6,boredom:-8}); b.state.modify({comfort:6,boredom:-8}); g.log(`${a.label} and ${b.label} chatted`,'int'); }});
+        this.register('compliment', { fn: async(a,b,g)=>{ await wait(800); rel().modify(b.id,a.id,8); b.state.modify({comfort:10}); g.log(`${a.label} complimented ${b.label}`,'int'); }});
+        this.register('insult',     { fn: async(a,b,g)=>{ await wait(600); rel().modify(b.id,a.id,-12); rel().modify(a.id,b.id,-4); b.state.modify({comfort:-15}); g.log(`${a.label} insulted ${b.label}!`,'warn'); }});
+        this.register('encourage',  { fn: async(a,b,g)=>{ await wait(1000); rel().modify(b.id,a.id,6); b.state.modify({comfort:8,energy:5}); g.log(`${a.label} encouraged ${b.label}`,'int'); }});
+        this.register('invite_watch_tv', { fn: async(a,b,g)=>{
+            const tv = g.findObject('tv'); if (!tv){ g.log('No TV!','warn'); return; }
+            const pt = tv.interactionPoint;
+            g.log(`${a.label} invited ${b.label} to watch TV`,'int');
+            await Promise.all([a.navigateTo(pt.x-15,pt.y), b.navigateTo(pt.x+15,pt.y)]);
+            await wait(2000);
+            a.state.modify({boredom:-30,comfort:8}); b.state.modify({boredom:-30,comfort:8});
+            rel().modifyBoth(a.id,b.id,5);
+            g.log(`${a.label} and ${b.label} watched TV together`,'int');
+        }});
+        this.register('invite_play', { fn: async(a,b,g)=>{
+            const con = g.findObject('console'); if (!con){ g.log('No console!','warn'); return; }
+            const pt = con.interactionPoint;
+            g.log(`${a.label} invited ${b.label} to play`,'int');
+            await Promise.all([a.navigateTo(pt.x-15,pt.y), b.navigateTo(pt.x+15,pt.y)]);
+            await wait(2500);
+            a.state.modify({boredom:-35,comfort:6}); b.state.modify({boredom:-35,comfort:6});
+            rel().modifyBoth(a.id,b.id,6);
+            g.log(`${a.label} and ${b.label} played together`,'int');
+        }});
+        this.register('complain',   { fn: async(a,b,g)=>{ await wait(1000); rel().modify(b.id,a.id,-3); a.state.modify({comfort:4}); b.state.modify({comfort:-5}); g.log(`${a.label} complained to ${b.label}`,'int'); }});
+    }
+}
+
+// ================================================================
+//  MODULE: AutonomySystem
+// ================================================================
+class AutonomySystem {
+    constructor(g) { this.game = g; }
+    update(agent, now) {
+        if (agent.busy || !agent._isAutonomous) return;
+        const elapsed = now - agent._lastActionTime;
+        if (elapsed < agent._autoInterval) {
+            if (now - agent._lastIdleStart > WANDER_IDLE && !agent.isMoving) {
+                this._smallWander(agent);
+                agent._lastIdleStart = now;
+            }
+            return;
+        }
+        agent._autoInterval = randR(AUTO_MIN, AUTO_MAX);
+        const action = this._decide(agent);
+        if (action) agent.executeAction(action);
+    }
+    _decide(agent) {
+        const s = agent.state, p = agent.personality;
+        if (s.energy < 20) return 'sleep';
+        if (s.hunger > 75) return 'eat';
+        if (s.hygiene < 25) return 'use_toilet';
+        if (s.boredom > 70) return this._findEntertainment(agent);
+        if (s.boredom > 50 && p.curiosity > 50) return this._findEntertainment(agent);
+        if (s.energy < 45 && p.laziness > 50) return 'sleep';
+        if (s.hunger > 50) return 'eat';
+        if (s.hygiene < 45) return 'use_toilet';
+        if (p.socialness > 40 && Math.random() < p.socialness/150) {
+            const near = this.game.agents.find(o => o!==agent && !o.busy && dist(agent,o)<PROXIMITY*3);
+            if (near) { this._autoInteract(agent, near); return null; }
+        }
+        if (p.curiosity > 50 && Math.random() < 0.5) return 'wander';
+        return Math.random() < 0.6 ? 'wander' : 'idle';
+    }
+    _findEntertainment(agent) {
+        for (const type of ['tv','console','sofa']) {
+            const obj = this.game.objects.find(o => o.type === type && !o.isOccupied);
+            if (obj) {
+                const actName = OBJ_DEFS[type]?.activity;
+                if (actName && this.game.actionSystem.actions[actName]) return actName;
+            }
+        }
+        return 'wander';
+    }
+    _autoInteract(actor, target) {
+        const p = actor.personality;
+        const r = this.game.relationships.get(actor.id, target.id);
+        let ch;
+        if (p.aggression > 60 && r < 30) ch = ['insult','complain'];
+        else if (p.socialness > 60) ch = ['talk','compliment','greet','encourage'];
+        else ch = ['greet','talk'];
+        this.game.interactionSystem.execute(pick(ch), actor, target);
+    }
+    _smallWander(agent) {
+        const room = this.game.world.getRoom(agent.currentRoom);
+        if (!room) return;
+        const ir = room.innerRect();
+        const rx = randR(ir.x + AGENT_R, ir.x + ir.w - AGENT_R);
+        const ry = randR(ir.y + AGENT_R, ir.y + ir.h - AGENT_R);
+        agent.moveTo(rx, ry);
+    }
+}
+
+// ================================================================
+//  MODULE: SceneManager3D — Three.js rendering synced from 2D state
+// ================================================================
+class SceneManager3D {
+    constructor(container) {
+        this.container = container;
+        this.labelsRoot = document.getElementById('labels');
+
+        this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(0x060610);
+        this.scene.fog = new THREE.Fog(0x060610, 25, 80);
+
+        this.camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
+        this.camera.position.set(12, 14, 16);
+
+        this.renderer = new THREE.WebGLRenderer({ antialias: true });
+        this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+        this.renderer.shadowMap.enabled = true;
+        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+        container.appendChild(this.renderer.domElement);
+
+        this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+        this.controls.enableDamping = true;
+        this.controls.dampingFactor = 0.1;
+        this.controls.target.set(8, 0, 6);
+        this.controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
+        this.controls.minDistance = 2; this.controls.maxDistance = 60;
+        this.controls.maxPolarAngle = Math.PI * 0.49;
+
+        // Lights
+        this.scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+        const sun = new THREE.DirectionalLight(0xffffff, 1.0);
+        sun.position.set(20, 30, 15); sun.castShadow = true;
+        sun.shadow.mapSize.set(2048, 2048);
+        sun.shadow.camera.left = -30; sun.shadow.camera.right = 30;
+        sun.shadow.camera.top = 30; sun.shadow.camera.bottom = -30;
+        sun.shadow.camera.near = 0.5; sun.shadow.camera.far = 80;
+        this.scene.add(sun);
+        const fill = new THREE.HemisphereLight(0x8899ff, 0x222233, 0.3);
+        this.scene.add(fill);
+
+        // Infinite-feeling ground plane (used for click raycasting)
+        const gGeo = new THREE.PlaneGeometry(300, 300);
+        const gMat = new THREE.MeshStandardMaterial({ color: 0x101018, roughness: 0.95 });
+        this.ground = new THREE.Mesh(gGeo, gMat);
+        this.ground.rotation.x = -Math.PI/2;
+        this.ground.receiveShadow = true;
+        this.scene.add(this.ground);
+
+        // Grid helper
+        const grid = new THREE.GridHelper(200, 200, 0x202038, 0x121220);
+        grid.position.y = 0.002;
+        this.scene.add(grid);
+
+        // Groups for dynamic content
+        this.roomGroup   = new THREE.Group(); this.scene.add(this.roomGroup);
+        this.doorGroup   = new THREE.Group(); this.scene.add(this.doorGroup);
+        this.objectGroup = new THREE.Group(); this.scene.add(this.objectGroup);
+        this.agentGroup  = new THREE.Group(); this.scene.add(this.agentGroup);
+
+        // Mappings: id → three object / bookkeeping
+        this._rooms3D   = new Map();
+        this._objects3D = new Map();
+        this._agents3D  = new Map();
+        this._worldDirty = -1;  // force first build
+
+        // GLB template (loaded async)
+        this._modelTemplate = null;
+        this._modelAnimations = null;
+        this._modelScale = 1;
+
+        this._resize();
+        window.addEventListener('resize', () => this._resize());
+
+        // Raycaster for clicks
+        this._raycaster = new THREE.Raycaster();
+    }
+
+    _resize() {
+        const w = this.container.clientWidth, h = this.container.clientHeight;
+        this.renderer.setSize(w, h);
+        this.camera.aspect = w / h;
+        this.camera.updateProjectionMatrix();
+    }
+
+    async loadModelTemplate() {
+        const loader = new GLTFLoader();
+        const gltf = await loader.loadAsync(MODEL_PATH);
+        this._modelTemplate = gltf.scene;
+        this._modelAnimations = gltf.animations;
+
+        // Enable shadows
+        gltf.scene.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+
+        // Measure for scaling
+        const box = new THREE.Box3().setFromObject(gltf.scene);
+        const size = box.getSize(new THREE.Vector3());
+        this._modelScale = TARGET_HEIGHT / Math.max(size.y, 0.001);
+    }
+
+    // Convert screen pixel → 2D sim coords via ground raycast
+    screenToSim(sx, sy) {
+        const rect = this.renderer.domElement.getBoundingClientRect();
+        const ndc = new THREE.Vector2(
+            ((sx - rect.left) / rect.width) * 2 - 1,
+            -((sy - rect.top) / rect.height) * 2 + 1
+        );
+        this._raycaster.setFromCamera(ndc, this.camera);
+        const hits = this._raycaster.intersectObject(this.ground, false);
+        if (!hits.length) return null;
+        const p = hits[0].point;
+        return { x: p.x / WORLD_SCALE, y: p.z / WORLD_SCALE };
+    }
+
+    // Picks the nearest agent whose screen projection is within R pixels of (sx,sy).
+    pickAgentAtScreen(sx, sy, game) {
+        const rect = this.renderer.domElement.getBoundingClientRect();
+        let best = null, bestD = 30;  // pixel tolerance
+        const v = new THREE.Vector3();
+        for (const agent of game.agents) {
+            v.set(agent.x * WORLD_SCALE, TARGET_HEIGHT * 0.5, agent.y * WORLD_SCALE);
+            v.project(this.camera);
+            const px = (v.x * 0.5 + 0.5) * rect.width + rect.left;
+            const py = (-v.y * 0.5 + 0.5) * rect.height + rect.top;
+            const d = Math.hypot(px - sx, py - sy);
+            if (d < bestD) { bestD = d; best = agent; }
+        }
+        return best;
+    }
+
+    // Build/rebuild rooms+doors when world is dirty
+    _rebuildWorldIfNeeded(game) {
+        if (game.world._dirty === this._worldDirty) return;
+        this._worldDirty = game.world._dirty;
+
+        // Clear
+        while (this.roomGroup.children.length) this.roomGroup.remove(this.roomGroup.children[0]);
+        while (this.doorGroup.children.length) this.doorGroup.remove(this.doorGroup.children[0]);
+        this._rooms3D.clear();
+
+        for (const room of game.world.rooms) this._buildRoom(room, game);
+        for (const door of game.world.doors) this._buildDoor(door);
+    }
+
+    _buildRoom(room, game) {
+        const grp = new THREE.Group();
+        const s = WORLD_SCALE;
+        const W = room.w * s, H = room.h * s;
+        const cx = (room.x + room.w/2) * s;
+        const cz = (room.y + room.h/2) * s;
+
+        // Floor (slightly above ground to avoid z-fighting)
+        const floor = new THREE.Mesh(
+            new THREE.PlaneGeometry(W, H),
+            new THREE.MeshStandardMaterial({ color: room.color, roughness: 0.85 })
+        );
+        floor.rotation.x = -Math.PI/2;
+        floor.position.set(cx, 0.005, cz);
+        floor.receiveShadow = true;
+        grp.add(floor);
+
+        // Walls with door openings
+        const wt = WALL_THICK * s;
+        const wallMat = new THREE.MeshStandardMaterial({ color: 0x3a3a5c, roughness: 0.8 });
+        const doorsOnRoom = game.world.doorsForRoom(room.id);
+
+        // For each of 4 edges, compute gaps for doors on that edge, then create wall segments
+        const makeSegments = (start, end, gaps) => {
+            // gaps = [[g0, g1], ...] sorted
+            const segs = [];
+            let cur = start;
+            for (const [g0, g1] of gaps) {
+                if (g0 > cur) segs.push([cur, g0]);
+                cur = Math.max(cur, g1);
+            }
+            if (cur < end) segs.push([cur, end]);
+            return segs;
+        };
+
+        // Top edge (y = room.y), horizontal wall along X
+        const topDoors = doorsOnRoom.filter(d => d.orientation === 'h' && Math.abs(d.y - room.y) < WALL_THICK + 1);
+        const topGaps = topDoors.map(d => [d.x - DOOR_WIDTH/2, d.x + DOOR_WIDTH/2]).sort((a,b)=>a[0]-b[0]);
+        for (const [a, b] of makeSegments(room.x, room.right, topGaps)) {
+            const len = (b - a) * s;
+            const m = new THREE.Mesh(new THREE.BoxGeometry(len, WALL_HEIGHT, wt), wallMat);
+            m.position.set(((a+b)/2)*s, WALL_HEIGHT/2, room.y*s);
+            m.castShadow = true; m.receiveShadow = true; grp.add(m);
+        }
+        // Bottom edge
+        const botDoors = doorsOnRoom.filter(d => d.orientation === 'h' && Math.abs(d.y - room.bottom) < WALL_THICK + 1);
+        const botGaps = botDoors.map(d => [d.x - DOOR_WIDTH/2, d.x + DOOR_WIDTH/2]).sort((a,b)=>a[0]-b[0]);
+        for (const [a, b] of makeSegments(room.x, room.right, botGaps)) {
+            const len = (b - a) * s;
+            const m = new THREE.Mesh(new THREE.BoxGeometry(len, WALL_HEIGHT, wt), wallMat);
+            m.position.set(((a+b)/2)*s, WALL_HEIGHT/2, room.bottom*s);
+            m.castShadow = true; m.receiveShadow = true; grp.add(m);
+        }
+        // Left edge
+        const leftDoors = doorsOnRoom.filter(d => d.orientation === 'v' && Math.abs(d.x - room.x) < WALL_THICK + 1);
+        const leftGaps = leftDoors.map(d => [d.y - DOOR_WIDTH/2, d.y + DOOR_WIDTH/2]).sort((a,b)=>a[0]-b[0]);
+        for (const [a, b] of makeSegments(room.y, room.bottom, leftGaps)) {
+            const len = (b - a) * s;
+            const m = new THREE.Mesh(new THREE.BoxGeometry(wt, WALL_HEIGHT, len), wallMat);
+            m.position.set(room.x*s, WALL_HEIGHT/2, ((a+b)/2)*s);
+            m.castShadow = true; m.receiveShadow = true; grp.add(m);
+        }
+        // Right edge
+        const rightDoors = doorsOnRoom.filter(d => d.orientation === 'v' && Math.abs(d.x - room.right) < WALL_THICK + 1);
+        const rightGaps = rightDoors.map(d => [d.y - DOOR_WIDTH/2, d.y + DOOR_WIDTH/2]).sort((a,b)=>a[0]-b[0]);
+        for (const [a, b] of makeSegments(room.y, room.bottom, rightGaps)) {
+            const len = (b - a) * s;
+            const m = new THREE.Mesh(new THREE.BoxGeometry(wt, WALL_HEIGHT, len), wallMat);
+            m.position.set(room.right*s, WALL_HEIGHT/2, ((a+b)/2)*s);
+            m.castShadow = true; m.receiveShadow = true; grp.add(m);
+        }
+
+        this.roomGroup.add(grp);
+        this._rooms3D.set(room.id, grp);
+    }
+
+    _buildDoor(door) {
+        const s = WORLD_SCALE;
+        const marker = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.08, 0.08, 0.02, 12),
+            new THREE.MeshStandardMaterial({ color: 0x5a8a5a, emissive: 0x224422, emissiveIntensity: 0.6 })
+        );
+        marker.position.set(door.x * s, 0.02, door.y * s);
+        this.doorGroup.add(marker);
+    }
+
+    // Sync objects
+    _syncObjects(game) {
+        const seen = new Set();
+        for (const obj of game.objects) {
+            seen.add(obj.id);
+            if (!this._objects3D.has(obj.id)) this._createObject3D(obj);
+            // Update occupancy tint
+            const rec = this._objects3D.get(obj.id);
+            rec.body.material.emissiveIntensity = obj.isOccupied ? 0.5 : 0.1;
+            rec.body.material.emissive.setHex(obj.isOccupied ? 0xe94560 : obj.def.color);
+        }
+        // Remove stale
+        for (const [id, rec] of [...this._objects3D.entries()]) {
+            if (!seen.has(id)) { this.objectGroup.remove(rec.group); this._objects3D.delete(id); }
+        }
+    }
+
+    _createObject3D(obj) {
+        const s = WORLD_SCALE;
+        const grp = new THREE.Group();
+        const w = obj.w * s, d = obj.h * s, h = 0.5;
+        const body = new THREE.Mesh(
+            new THREE.BoxGeometry(w, h, d),
+            new THREE.MeshStandardMaterial({ color: obj.def.color, roughness: 0.6, emissive: obj.def.color, emissiveIntensity: 0.1 })
+        );
+        body.castShadow = true; body.receiveShadow = true;
+        body.position.y = h/2;
+        grp.add(body);
+
+        // Icon sprite (emoji on canvas)
+        const cv = document.createElement('canvas');
+        cv.width = 128; cv.height = 128;
+        const cx = cv.getContext('2d');
+        cx.font = '96px serif';
+        cx.textAlign = 'center';
+        cx.textBaseline = 'middle';
+        cx.fillText(obj.def.icon, 64, 72);
+        const tex = new THREE.CanvasTexture(cv);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
+        spr.scale.set(0.6, 0.6, 0.6);
+        spr.position.y = h + 0.35;
+        grp.add(spr);
+
+        // Position (center of object rect)
+        grp.position.set((obj.x + obj.w/2) * s, 0, (obj.y + obj.h/2) * s);
+        this.objectGroup.add(grp);
+        this._objects3D.set(obj.id, { group: grp, body, sprite: spr });
+    }
+
+    // Sync agents (3D) — handles add/remove, movement, rotation, animation
+    _syncAgents(game, dt) {
+        const seen = new Set();
+        for (const agent of game.agents) {
+            seen.add(agent.id);
+            if (!this._agents3D.has(agent.id)) this._createAgent3D(agent);
+            this._updateAgent3D(this._agents3D.get(agent.id), agent, dt, game);
+        }
+        for (const [id, rec] of [...this._agents3D.entries()]) {
+            if (!seen.has(id)) {
+                this.agentGroup.remove(rec.group);
+                rec.label?.remove();
+                this._agents3D.delete(id);
+            }
+        }
+    }
+
+    _createAgent3D(agent) {
+        const grp = new THREE.Group();
+
+        let mixer = null, walkAction = null, hasAnim = false;
+
+        if (this._modelTemplate) {
+            // Clone the GLB (SkeletonUtils preserves independent skeletal animation)
+            const model = SkeletonUtils.clone(this._modelTemplate);
+            model.scale.setScalar(this._modelScale);
+            // Lift so feet sit on ground
+            const box = new THREE.Box3().setFromObject(model);
+            model.position.y -= box.min.y;
+            model.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+            grp.add(model);
+
+            if (this._modelAnimations && this._modelAnimations.length) {
+                mixer = new THREE.AnimationMixer(model);
+                walkAction = mixer.clipAction(this._modelAnimations[0]);
+                walkAction.setLoop(THREE.LoopRepeat);
+                walkAction.play();
+                walkAction.paused = true;  // start frozen; unpauses when isMoving
+                hasAnim = true;
+            }
+        } else {
+            // Fallback: colored capsule
+            const fb = new THREE.Mesh(
+                new THREE.CapsuleGeometry(0.2, 0.5, 4, 8),
+                new THREE.MeshStandardMaterial({ color: agent.colorHex })
+            );
+            fb.position.y = 0.45;
+            fb.castShadow = true;
+            grp.add(fb);
+        }
+
+        // Color ring under feet (agent color indicator)
+        const ring = new THREE.Mesh(
+            new THREE.RingGeometry(0.28, 0.38, 24),
+            new THREE.MeshBasicMaterial({ color: agent.colorHex, transparent: true, opacity: 0.85, side: THREE.DoubleSide })
+        );
+        ring.rotation.x = -Math.PI/2;
+        ring.position.y = 0.01;
+        grp.add(ring);
+
+        // Selection ring (hidden by default)
+        const selRing = new THREE.Mesh(
+            new THREE.RingGeometry(0.42, 0.5, 32),
+            new THREE.MeshBasicMaterial({ color: 0xe94560, transparent: true, opacity: 0.9, side: THREE.DoubleSide })
+        );
+        selRing.rotation.x = -Math.PI/2;
+        selRing.position.y = 0.012;
+        selRing.visible = false;
+        grp.add(selRing);
+
+        grp.position.set(agent.x * WORLD_SCALE, 0, agent.y * WORLD_SCALE);
+        this.agentGroup.add(grp);
+
+        // HTML label
+        const lbl = document.createElement('div');
+        lbl.className = 'lbl';
+        lbl.style.borderColor = agent.color;
+        this.labelsRoot.appendChild(lbl);
+
+        this._agents3D.set(agent.id, {
+            group: grp, mixer, walkAction, hasAnim,
+            selRing, label: lbl,
+            rotY: 0,      // current smoothed rotation
+        });
+    }
+
+    _updateAgent3D(rec, agent, dt, game) {
+        // Position
+        rec.group.position.x = agent.x * WORLD_SCALE;
+        rec.group.position.z = agent.y * WORLD_SCALE;
+
+        // Rotation: face movement direction. Model's default forward is +Z.
+        // For direction (dx, dz) in world, rotation.y = atan2(dx, dz).
+        const dx = agent.targetX - agent.x;
+        const dz = agent.targetY - agent.y;
+        if (Math.hypot(dx, dz) > 0.8) {
+            const targetY = Math.atan2(dx, dz);
+            // Smooth interpolation (shortest arc)
+            let diff = targetY - rec.rotY;
+            while (diff > Math.PI)  diff -= Math.PI * 2;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            rec.rotY += diff * Math.min(1, dt * 10);
+        }
+        rec.group.rotation.y = rec.rotY;
+
+        // Animation: walk plays while moving, paused+frozen when stopped
+        if (rec.hasAnim) {
+            rec.walkAction.paused = !agent.isMoving;
+            rec.mixer.update(dt);
+        }
+
+        // Selection
+        rec.selRing.visible = (game.selectedAgent === agent);
+
+        // Label
+        this._updateLabel(rec, agent);
+    }
+
+    _updateLabel(rec, agent) {
+        const v = new THREE.Vector3(
+            agent.x * WORLD_SCALE,
+            TARGET_HEIGHT + 0.25,
+            agent.y * WORLD_SCALE
+        );
+        v.project(this.camera);
+        const rect = this.renderer.domElement.getBoundingClientRect();
+        const sx = (v.x * 0.5 + 0.5) * rect.width;
+        const sy = (-v.y * 0.5 + 0.5) * rect.height;
+
+        // Hide if behind camera or off-screen
+        if (v.z > 1 || sx < -50 || sx > rect.width + 50 || sy < -50 || sy > rect.height + 50) {
+            rec.label.style.display = 'none';
+            return;
+        }
+        rec.label.style.display = '';
+        rec.label.style.left = sx + 'px';
+        rec.label.style.top  = sy + 'px';
+
+        const moods = {happy:'\u{1F60A}',fine:'\u{1F610}',sad:'\u{1F622}',miserable:'\u{1F62D}'};
+        let html = `<span style="color:${agent.color}">${agent.label}</span><span class="mood">${moods[agent.state.moodLabel]||''}</span>`;
+        if (agent.currentAction) html += `<span class="act">${agent.currentAction}</span>`;
+        if (rec.label._lastHTML !== html) { rec.label.innerHTML = html; rec.label._lastHTML = html; }
+    }
+
+    update(game, dt) {
+        this._rebuildWorldIfNeeded(game);
+        this._syncObjects(game);
+        this._syncAgents(game, dt);
+        this.controls.update();
+        this.renderer.render(this.scene, this.camera);
+
+        // Zoom readout (distance-based)
+        const d = this.controls.getDistance();
+        document.getElementById('zoom-display').textContent = `dist ${d.toFixed(1)}`;
+    }
+
+    frameOn(simX, simY, distance = 18) {
+        const wx = simX * WORLD_SCALE, wz = simY * WORLD_SCALE;
+        this.controls.target.set(wx, 0, wz);
+        this.camera.position.set(wx + distance*0.6, distance*0.8, wz + distance);
+        this.controls.update();
+    }
+}
+
+// ================================================================
+//  MODULE: UIController
+// ================================================================
+class UIController {
+    constructor(game) {
+        this.game = game;
+        this.placementMode = null;
+        this.roomPlaceMode = null;
+        this.doorMode = false;
+        this.interactA = null;
+        this.interactB = null;
+        this._bind();
+    }
+
+    _bind() {
+        document.querySelectorAll('.btn-room').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const type = btn.dataset.room;
+                this._clearModes();
+                this.roomPlaceMode = type;
+                btn.classList.add('active');
+                document.getElementById('hint').textContent = 'Click to place room';
+                document.getElementById('hint').style.display = 'block';
+            });
+        });
+
+        document.getElementById('btn-add-door').addEventListener('click', () => {
+            this._clearModes();
+            this.doorMode = true;
+            document.getElementById('btn-add-door').classList.add('active');
+            document.getElementById('hint').textContent = 'Click on a shared wall between two rooms';
+            document.getElementById('hint').style.display = 'block';
+        });
+
+        document.querySelectorAll('.btn-place').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const type = btn.dataset.place;
+                this._clearModes();
+                this.placementMode = type;
+                btn.classList.add('active');
+                document.getElementById('hint').textContent = `Click inside a room to place ${type}`;
+                document.getElementById('hint').style.display = 'block';
+            });
+        });
+
+        document.getElementById('btn-add-agent').addEventListener('click', () => {
+            this.game.addAgent();
+            this.refreshChips();
+        });
+
+        document.getElementById('btn-export').addEventListener('click', () => {
+            const json = this.game.logSystem.export();
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = `sim_log_${Date.now()}.json`; a.click();
+            URL.revokeObjectURL(url);
+            this.game.log('Logs exported!', 'act');
+        });
+
+        // Canvas clicks — raycast through SceneManager3D
+        const canvas = this.game.scene.renderer.domElement;
+        let downX = 0, downY = 0, downBtn = -1;
+        canvas.addEventListener('mousedown', e => { downX = e.clientX; downY = e.clientY; downBtn = e.button; });
+        canvas.addEventListener('click', e => {
+            // ignore clicks where the user actually dragged (orbit/pan)
+            if (downBtn !== 0) return;
+            if (Math.hypot(e.clientX - downX, e.clientY - downY) > 4) return;
+
+            const sim = this.game.scene.screenToSim(e.clientX, e.clientY);
+            if (!sim) return;
+
+            if (this.roomPlaceMode) {
+                const sx = snap(sim.x, GRID), sy = snap(sim.y, GRID);
+                this.game.addRoom(this.roomPlaceMode, sx, sy);
+                this._clearModes(); return;
+            }
+            if (this.doorMode) {
+                this._tryPlaceDoor(sim.x, sim.y);
+                this._clearModes(); return;
+            }
+            if (this.placementMode) {
+                const room = this.game.world.roomAt(sim.x, sim.y);
+                if (!room) { this.game.log('Click inside a room!', 'warn'); return; }
+                const sx = snap(sim.x, GRID) - OBJ_W/2;
+                const sy = snap(sim.y, GRID) - OBJ_H/2;
+                this.game.placeObject(this.placementMode, sx, sy, room.id);
+                this._clearModes(); return;
+            }
+
+            // Agent selection — screen-space pick
+            const picked = this.game.scene.pickAgentAtScreen(e.clientX, e.clientY, this.game);
+            if (picked) {
+                this.game.selectedAgent = picked;
+                document.getElementById('hud').textContent = `Selected: ${picked.label}`;
+                this.refreshChips();
+            }
+        });
+
+        this._buildActions();
+        this._buildInteractions();
+    }
+
+    _clearModes() {
+        this.placementMode = null;
+        this.roomPlaceMode = null;
+        this.doorMode = false;
+        document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
+        document.getElementById('hint').style.display = 'none';
+    }
+
+    _tryPlaceDoor(wx, wy) {
+        const world = this.game.world;
+        for (let i = 0; i < world.rooms.length; i++) {
+            for (let j = i+1; j < world.rooms.length; j++) {
+                const rA = world.rooms[i], rB = world.rooms[j];
+                const wall = world.findSharedWall(rA, rB);
+                if (wall && Math.hypot(wall.x - wx, wall.y - wy) < 60) {
+                    const exists = world.doors.some(d =>
+                        (d.roomA===rA.id && d.roomB===rB.id) || (d.roomA===rB.id && d.roomB===rA.id));
+                    if (exists) { this.game.log('Door already exists here', 'warn'); return; }
+                    world.addDoor(rA.id, rB.id, wall.x, wall.y, wall.orientation);
+                    this.game.log(`Door added: ${rA.label} ↔ ${rB.label}`, 'act');
+                    this.game.logSystem.record(null, 'door_added', null, { rooms: [rA.id, rB.id] });
+                    return;
+                }
+            }
+        }
+        this.game.log('No shared wall found near click', 'warn');
+    }
+
+    _buildActions() {
+        const wrap = document.getElementById('action-btns');
+        const actions = ['go_to_kitchen','go_to_bed','go_to_bathroom','eat','sleep','use_toilet',
+                         'watch_tv','play_games','relax','idle','wander'];
+        actions.forEach(name => {
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-action';
+            btn.textContent = name.replace(/_/g,' ');
+            btn.addEventListener('click', () => {
+                const a = this.game.selectedAgent;
+                if (!a) { this.game.log('Select an agent','warn'); return; }
+                a.executeAction(name);
+            });
+            wrap.appendChild(btn);
+        });
+    }
+
+    _buildInteractions() {
+        const wrap = document.getElementById('int-btns');
+        this.game.interactionSystem.getAvailableInteractions().forEach(name => {
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-interact';
+            btn.textContent = name.replace(/_/g,' ');
+            btn.addEventListener('click', () => {
+                if (!this.interactA||!this.interactB) { this.game.log('Select A and B','warn'); return; }
+                if (this.interactA===this.interactB) { this.game.log('Cannot self-interact','warn'); return; }
+                this.game.interactionSystem.execute(name, this.interactA, this.interactB);
+            });
+            wrap.appendChild(btn);
+        });
+    }
+
+    refreshChips() {
+        this._chips('agent-chips-left', a=>{this.game.selectedAgent=a; document.getElementById('hud').textContent=`Selected: ${a.label}`; this.refreshChips();}, this.game.selectedAgent);
+        this._chips('ia-chips', a=>{this.interactA=a; this.refreshChips();}, this.interactA);
+        this._chips('ib-chips', a=>{this.interactB=a; this.refreshChips();}, this.interactB);
+    }
+
+    _chips(id, onClick, sel) {
+        const w = document.getElementById(id); w.innerHTML='';
+        this.game.agents.forEach(a => {
+            const c = document.createElement('span');
+            c.className = 'chip'+(a===sel?' sel':'');
+            c.innerHTML = `<span class="dot" style="background:${a.color}"></span>${a.label}`;
+            c.addEventListener('click', ()=>onClick(a));
+            w.appendChild(c);
+        });
+    }
+
+    updateStateDisplay() {
+        const agent = this.game.selectedAgent;
+        const el = document.getElementById('state-display');
+        if (!agent) { el.innerHTML='<span style="color:#444">No agent selected</span>'; return; }
+
+        const s=agent.state.toJSON(), p=agent.personality.toJSON();
+        const bc=(k,v)=>{ let x=(k==='hunger'||k==='boredom')?100-v:v; return x>60?'#95e1d3':x>30?'#f4a261':'#e94560'; };
+        const room = this.game.world.getRoom(agent.currentRoom);
+
+        let h = `<b style="color:${agent.color}">${agent.label}</b>`;
+        if (agent.currentAction) h += ` <span style="color:#53d8fb;font-size:8px">${agent.currentAction}</span>`;
+        h += `<span style="float:right;font-size:8px">${s.moodLabel}</span>`;
+        if (room) h += `<div style="font-size:8px;color:#555;margin:2px 0">Room: ${room.label}</div>`;
+
+        ['energy','hunger','hygiene','comfort','boredom','mood'].forEach(k => {
+            h += `<div class="sr"><span class="sl">${k}</span><div class="bbg"><div class="bf" style="width:${s[k]}%;background:${bc(k,s[k])}"></div></div><span class="sv">${s[k]}</span></div>`;
+        });
+
+        h += `<div style="margin-top:3px;font-size:8px;color:#444">Personality</div>`;
+        for(const[k,v]of Object.entries(p)) {
+            h += `<div class="sr"><span class="sl">${k}</span><div class="bbg"><div class="bf" style="width:${v}%;background:#444"></div></div><span class="sv">${v}</span></div>`;
+        }
+        el.innerHTML = h;
+
+        const tEl = document.getElementById('tgt-state');
+        const t = this.interactB;
+        if (!t) { tEl.innerHTML='&mdash;'; }
+        else {
+            const ts = t.state.toJSON();
+            let th = `<b style="color:${t.color}">${t.label}</b> <span style="font-size:8px">${ts.moodLabel}</span>`;
+            ['energy','hunger','hygiene','comfort','boredom','mood'].forEach(k => {
+                th += `<div class="sr"><span class="sl">${k}</span><div class="bbg"><div class="bf" style="width:${ts[k]}%;background:${bc(k,ts[k])}"></div></div><span class="sv">${ts[k]}</span></div>`;
+            });
+            tEl.innerHTML = th;
+        }
+
+        const rEl = document.getElementById('rel-display');
+        if (!this.interactA||!this.interactB||this.interactA===this.interactB) {
+            rEl.textContent='Select two different agents';
+        } else {
+            const r = this.game.relationships;
+            rEl.innerHTML=`${this.interactA.label} → ${this.interactB.label}: <b>${Math.round(r.get(this.interactA.id,this.interactB.id))}</b>/100<br>${this.interactB.label} → ${this.interactA.label}: <b>${Math.round(r.get(this.interactB.id,this.interactA.id))}</b>/100`;
+        }
+    }
+}
+
+// ================================================================
+//  MODULE: Game — orchestrator
+// ================================================================
+class Game {
+    constructor() {
+        this.world     = new WorldManager();
+        this.objects   = [];
+        this.agents    = [];
+        this.selectedAgent = null;
+        this.relationships = new RelationshipMap();
+        this.logSystem = new LogSystem();
+        this.scene     = null;
+        this.actionSystem = null;
+        this.interactionSystem = null;
+        this.autonomy  = null;
+        this.ui        = null;
+        this._lastTime = 0;
+    }
+
+    async init() {
+        const container = document.getElementById('vp');
+        this.scene = new SceneManager3D(container);
+        try {
+            await this.scene.loadModelTemplate();
+        } catch (e) {
+            console.warn('Model load failed, using fallback capsules:', e);
+        }
+        document.getElementById('loading').style.display = 'none';
+
+        this.actionSystem = new ActionSystem(this);
+        this.interactionSystem = new InteractionSystem(this);
+        this.autonomy = new AutonomySystem(this);
+        this._registerActions();
+        this._buildDefaultHouse();
+
+        const lr = this.world.rooms[0];
+        this.addAgent(lr.cx - 30, lr.cy, lr.id);
+        this.addAgent(lr.cx + 30, lr.cy, lr.id);
+        this.selectedAgent = this.agents[0];
+
+        // Frame camera on house
+        this.scene.frameOn(lr.cx, lr.cy, 18);
+
+        this.ui = new UIController(this);
+        this.ui.refreshChips();
+
+        this.log('Engine v2 (3D) ready. Rooms/doors/objects all work — agents are GLB-animated.', 'act');
+        this.logSystem.record(null, 'engine_start', null);
+        requestAnimationFrame(t => this._loop(t));
+    }
+
+    _buildDefaultHouse() {
+        this.world.addRoom('living_room', 100, 100, 360, 280);
+        this.world.addRoom('kitchen_room', 460, 100, 280, 280);
+        this.world.addRoom('bedroom', 100, 380, 360, 240);
+        this.world.addRoom('bathroom_room', 460, 380, 280, 240);
+        this.world.autoCreateDoors();
+    }
+
+    addRoom(type, x, y) {
+        const r = this.world.addRoom(type, x, y);
+        this.world.autoCreateDoors();
+        this.log(`Created ${r.label}`, 'act');
+        this.logSystem.record(null, 'room_created', r.id, { type: r.type });
+        return r;
+    }
+
+    addAgent(x, y, roomId) {
+        if (!roomId) {
+            const room = this.world.roomAt(x || 0, y || 0) || this.world.rooms[0];
+            if (!room) { this.log('No rooms exist!', 'warn'); return; }
+            roomId = room.id;
+            if (!x) { x = room.cx + randR(-40,40); y = room.cy + randR(-40,40); }
+        }
+        const a = new Agent(x, y, roomId);
+        this.agents.push(a);
+        this.log(`${a.label} joined`, 'act');
+        this.logSystem.record(a, 'agent_created', null, { room: roomId });
+        if (this.ui) this.ui.refreshChips();
+        return a;
+    }
+
+    placeObject(type, x, y, roomId) {
+        const obj = new WorldObject(type, x, y, roomId);
+        this.objects.push(obj);
+        this.log(`Placed ${obj.id}`, 'act');
+        this.logSystem.record(null, 'object_placed', obj.id, { type, room: roomId });
+        return obj;
+    }
+
+    findObject(type) { return this.objects.find(o => o.type===type) || null; }
+    findUnoccupiedObject(type) { return this.objects.find(o => o.type===type && !o.isOccupied) || null; }
+    findObjectById(id) { return this.objects.find(o => o.id===id) || null; }
+
+    log(msg, cls='') {
+        const el = document.getElementById('log');
+        const t = new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+        const d = document.createElement('div');
+        d.className = 'l ' + cls;
+        d.textContent = `[${t}] ${msg}`;
+        el.appendChild(d);
+        if (el.children.length>300) el.removeChild(el.firstChild);
+        el.scrollTop = el.scrollHeight;
+    }
+
+    _registerActions() {
+        const wait = ms => new Promise(r=>setTimeout(r,ms));
+
+        const goToObj = async (agent, game, type) => {
+            const obj = game.findObject(type);
+            if (!obj) { game.log(`No ${type} placed!`,'warn'); return null; }
+            const pt = obj.interactionPoint;
+            await agent.navigateTo(pt.x, pt.y);
+            return obj;
+        };
+
+        const useObject = async (agent, game, type, duration, stateChanges, msg) => {
+            const obj = game.findUnoccupiedObject(type);
+            if (!obj) { game.log(`No available ${type}!`,'warn'); return null; }
+            const pt = obj.interactionPoint;
+            await agent.navigateTo(pt.x, pt.y);
+            obj.occupiedBy = agent.id;
+            game.log(`${agent.label} using ${obj.id}...`,'act');
+            game.logSystem.record(agent, 'use_object', obj.id, { type });
+            await wait(duration);
+            agent.state.modify(stateChanges);
+            obj.occupiedBy = null;
+            game.log(`${agent.label} ${msg}`,'act');
+            return obj;
+        };
+
+        this.actionSystem.register('go_to_kitchen',  { description:'Walk to kitchen', target:'kitchen',  fn: async(a,g)=>{ await goToObj(a,g,'kitchen'); }});
+        this.actionSystem.register('go_to_bed',      { description:'Walk to bed',     target:'bed',      fn: async(a,g)=>{ await goToObj(a,g,'bed'); }});
+        this.actionSystem.register('go_to_bathroom', { description:'Walk to bathroom',target:'bathroom', fn: async(a,g)=>{ await goToObj(a,g,'bathroom'); }});
+
+        this.actionSystem.register('eat', {
+            description:'Eat at kitchen', target:'kitchen',
+            fn: async(a,g)=>{ await useObject(a,g,'kitchen',2000,{hunger:-30,energy:5,comfort:3},'finished eating'); }
+        });
+        this.actionSystem.register('sleep', {
+            description:'Sleep in bed', target:'bed',
+            fn: async(a,g)=>{ await useObject(a,g,'bed',3000,{energy:40,comfort:10,hunger:5,boredom:5},'woke up rested'); }
+        });
+        this.actionSystem.register('use_toilet', {
+            description:'Use bathroom', target:'bathroom',
+            fn: async(a,g)=>{ await useObject(a,g,'bathroom',1500,{hygiene:35,comfort:5},'feels clean'); }
+        });
+        this.actionSystem.register('watch_tv', {
+            description:'Watch TV', target:'tv',
+            fn: async(a,g)=>{ await useObject(a,g,'tv',2500,{boredom:-35,energy:-3,comfort:5},'done watching TV'); }
+        });
+        this.actionSystem.register('play_games', {
+            description:'Play games', target:'console',
+            fn: async(a,g)=>{ await useObject(a,g,'console',3000,{boredom:-40,energy:-5,comfort:4},'done playing'); }
+        });
+        this.actionSystem.register('relax', {
+            description:'Relax on sofa', target:'sofa',
+            fn: async(a,g)=>{ await useObject(a,g,'sofa',2000,{boredom:-15,energy:10,comfort:12},'feels relaxed'); }
+        });
+        this.actionSystem.register('idle', {
+            description:'Stand still', target:null,
+            fn: async(a,g)=>{ g.log(`${a.label} idling...`); await wait(1200); }
+        });
+        this.actionSystem.register('wander', {
+            description:'Random walk', target:null,
+            fn: async(a,g)=>{
+                const room = g.world.getRoom(a.currentRoom);
+                if (!room) return;
+                const ir = room.innerRect();
+                const rx = randR(ir.x+AGENT_R, ir.x+ir.w-AGENT_R);
+                const ry = randR(ir.y+AGENT_R, ir.y+ir.h-AGENT_R);
+                await a.moveTo(rx, ry);
+            }
+        });
+    }
+
+    _loop(time) {
+        requestAnimationFrame(t => this._loop(t));
+        const dt = Math.min((time - this._lastTime)/1000, 0.1);
+        this._lastTime = time;
+        const now = performance.now();
+
+        for (const a of this.agents) {
+            a.updateMovement(dt);
+            a.state.tick(dt);
+            this.autonomy.update(a, now);
+        }
+
+        for (let i=0; i<this.agents.length; i++) {
+            for (let j=i+1; j<this.agents.length; j++) {
+                const a=this.agents[i], b=this.agents[j];
+                if (dist(a,b)<PROXIMITY) {
+                    const boost = 0.2*dt;
+                    a.state.modify({comfort: boost*(a.personality.socialness/50)});
+                    b.state.modify({comfort: boost*(b.personality.socialness/50)});
+                }
+            }
+        }
+
+        this.scene.update(this, dt);
+        this.ui.updateStateDisplay();
+    }
+}
+
+// ================================================================
+//  BOOTSTRAP
+// ================================================================
+const game = new Game();
+game.init();
+
+// ── Global API (identical to 2D engine) ──
+window.game = game;
+window.simAPI = {
+    executeAction:   (agentId,name) => { const a=game.agents.find(x=>x.id===agentId); return a?a.executeAction(name):Promise.resolve(false); },
+    interact:        (aId,bId,name) => { const a=game.agents.find(x=>x.id===aId),b=game.agents.find(x=>x.id===bId); return(a&&b)?game.interactionSystem.execute(name,a,b):Promise.resolve(false); },
+    getAgents:       () => game.agents.map(a=>({id:a.id,label:a.label,x:Math.round(a.x),y:Math.round(a.y),room:a.currentRoom,busy:a.busy,state:a.state.toJSON(),personality:a.personality.toJSON()})),
+    getObjects:      () => game.objects.map(o=>({id:o.id,type:o.type,x:o.x,y:o.y,room:o.roomId,occupied:o.isOccupied,occupiedBy:o.occupiedBy})),
+    getRooms:        () => game.world.rooms.map(r=>({id:r.id,type:r.type,label:r.label,x:r.x,y:r.y,w:r.w,h:r.h})),
+    getDoors:        () => game.world.doors.map(d=>({id:d.id,roomA:d.roomA,roomB:d.roomB,x:d.x,y:d.y})),
+    getActions:      () => game.actionSystem.getAvailableActions(),
+    getInteractions: () => game.interactionSystem.getAvailableInteractions(),
+    getRelationship: (a,b) => game.relationships.get(a,b),
+    addAgent:        () => { const a=game.addAgent(); return a?.id; },
+    addRoom:         (type,x,y) => { const r=game.addRoom(type,x,y); return r.id; },
+    placeObject:     (type,x,y,roomId) => { const o=game.placeObject(type,x,y,roomId); return o.id; },
+    setAutonomy:     (id,on) => { const a=game.agents.find(x=>x.id===id); if(a)a._isAutonomous=on; },
+    exportLogs:      () => game.logSystem.export(),
+    getLogs:         () => game.logSystem.events,
+};
+</script>
+</body>
+</html>

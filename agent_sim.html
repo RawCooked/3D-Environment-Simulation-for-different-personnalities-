@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Agent Simulation — Core</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a14; font-family: system-ui, sans-serif; color: #ccc; }
+    #app { position: absolute; inset: 0; }
+    #hud {
+        position: absolute; top: 12px; left: 12px; z-index: 10;
+        background: rgba(14,14,28,0.85); padding: 10px 14px; border-radius: 6px;
+        font-size: 12px; border: 1px solid #1e1e35; line-height: 1.6;
+        pointer-events: none; min-width: 220px;
+    }
+    #hud b { color: #e94560; }
+    #hud .k { color: #53d8fb; font-weight: 600; }
+    #hud .sel { color: #95e1d3; font-weight: 600; }
+    #loading {
+        position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+        background: rgba(6,6,16,0.95); color: #e94560; font-size: 16px; font-weight: 600; z-index: 20;
+    }
+</style>
+
+<script type="importmap">
+{
+    "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+    }
+}
+</script>
+</head>
+<body>
+
+<div id="app"></div>
+<div id="hud">
+    <div><b>Agent Simulation</b></div>
+    <div>Mode: <span id="mode" class="k">FREE</span></div>
+    <div>Selected: <span id="sel" class="sel">—</span></div>
+    <hr style="border-color:#1e1e35;margin:6px 0">
+    <div><span class="k">Click</span> agent → FOLLOW</div>
+    <div><span class="k">F</span> → toggle FPS ↔ FOLLOW</div>
+    <div><span class="k">ESC</span> → deselect (FREE)</div>
+    <div><span class="k">Space</span> → cycle animation</div>
+</div>
+<div id="loading">Loading models…</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader }   from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+
+// ================================================================
+//  CONFIG
+// ================================================================
+const MODEL_URL = 'source/model.glb';
+
+// Separate GLBs that each contain ONE animation clip.
+// Keys are the names you'll use at runtime (controller.play('idle')).
+// The first name in this list with an "isLocomotion:true" flag is the
+// one played automatically while the agent is moving.
+const ANIMATION_SOURCES = [
+    { name: 'idle',       url: 'source/idle.glb',       loop: true },
+    { name: 'walk',       url: 'source/model.glb',      loop: true, isLocomotion: true }, // model.glb's embedded clip
+    { name: 'greeting',   url: 'source/greeting.glb',   loop: false },
+    { name: 'head-nod',   url: 'source/head-nod.glb',   loop: false },
+    { name: 'levitating', url: 'source/levitating.glb', loop: true },
+    { name: 'push-ups',   url: 'source/push-ups.glb',   loop: true },
+    { name: 'talking',    url: 'source/talking.glb',    loop: true },
+    { name: 'shower',     url: 'source/shower.glb',     loop: true },
+];
+
+const AGENT_COUNT  = 4;
+const AGENT_SPREAD = 6;
+const MOVE_SPEED   = 1.8;
+const WANDER_RANGE = 8;
+const WANDER_PAUSE = [1500, 4000];  // ms range to idle between walks
+
+// ================================================================
+//  MODULE: AnimationLibrary
+//    Loads every animation GLB once, exposes named AnimationClips.
+//    Clips are retargeted at bind-time by the mixer (bones match by name
+//    across GLBs exported from the same rig).
+// ================================================================
+class AnimationLibrary {
+    constructor() {
+        this.clips = new Map();  // name → { clip, loop, isLocomotion }
+        this.locomotionName = null;
+    }
+
+    async load(sources) {
+        const loader = new GLTFLoader();
+        const results = await Promise.allSettled(sources.map(async s => {
+            const gltf = await loader.loadAsync(s.url);
+            if (!gltf.animations || gltf.animations.length === 0) {
+                throw new Error(`no animation clip in ${s.url}`);
+            }
+            // Use the first clip, but rename it to our canonical name
+            const clip = gltf.animations[0].clone();
+            clip.name = s.name;
+            return { ...s, clip };
+        }));
+
+        for (let i = 0; i < results.length; i++) {
+            const r = results[i], src = sources[i];
+            if (r.status === 'fulfilled') {
+                this.clips.set(src.name, r.value);
+                if (src.isLocomotion && !this.locomotionName) this.locomotionName = src.name;
+                console.log(`[anim] loaded "${src.name}" (${r.value.clip.duration.toFixed(2)}s)`);
+            } else {
+                console.warn(`[anim] failed "${src.name}":`, r.reason?.message || r.reason);
+            }
+        }
+    }
+
+    has(name) { return this.clips.has(name); }
+    get(name) { return this.clips.get(name); }
+    names() { return [...this.clips.keys()]; }
+}
+
+// ================================================================
+//  MODULE: AnimationController (per agent)
+//    Owns one AnimationMixer bound to the agent's cloned skeleton.
+//    Lazily builds AnimationActions from the shared clip library.
+//    Handles crossfades and "freeze on last frame" for missing idle.
+// ================================================================
+class AnimationController {
+    constructor(rootObject, library) {
+        this.root = rootObject;
+        this.library = library;
+        this.mixer = new THREE.AnimationMixer(rootObject);
+        this.actions = new Map();    // name → AnimationAction
+        this.current = null;          // current action
+        this.currentName = null;
+    }
+
+    _buildAction(name) {
+        if (this.actions.has(name)) return this.actions.get(name);
+        const entry = this.library.get(name);
+        if (!entry) return null;
+        const action = this.mixer.clipAction(entry.clip);
+        action.setLoop(entry.loop ? THREE.LoopRepeat : THREE.LoopOnce);
+        action.clampWhenFinished = !entry.loop;  // freeze on last frame if non-loop
+        this.actions.set(name, action);
+        return action;
+    }
+
+    /**
+     * Smoothly transition to a named animation. If the animation does not
+     * exist in the library, freezes on the current pose instead of throwing.
+     */
+    play(name, { fade = 0.25, restart = false } = {}) {
+        if (!this.library.has(name)) {
+            // No such anim → freeze current pose
+            this.freeze();
+            return false;
+        }
+        if (this.currentName === name && !restart) return true;
+
+        const next = this._buildAction(name);
+        next.reset();
+        next.paused = false;
+        next.enabled = true;
+        next.setEffectiveWeight(1);
+        next.fadeIn(fade);
+        next.play();
+
+        if (this.current && this.current !== next) {
+            this.current.fadeOut(fade);
+        }
+
+        this.current = next;
+        this.currentName = name;
+        return true;
+    }
+
+    /** Pause current action on its current frame (no idle fallback). */
+    freeze() {
+        if (this.current) this.current.paused = true;
+    }
+
+    /** Return to idle if available, else freeze. */
+    rest() {
+        if (this.library.has('idle')) this.play('idle');
+        else this.freeze();
+    }
+
+    update(dt) { this.mixer.update(dt); }
+
+    list() { return [...this.actions.keys()]; }
+}
+
+// ================================================================
+//  MODULE: Agent
+//    Owns: cloned GLB root, AnimationController, movement target,
+//    and wander behavior. Agent logic is independent of camera.
+// ================================================================
+class Agent {
+    static _n = 0;
+    constructor(modelTemplate, library, position = new THREE.Vector3()) {
+        Agent._n++;
+        this.id = `agent_${Agent._n}`;
+        this.label = `Agent ${Agent._n}`;
+
+        // Clone with SkeletonUtils to get an independent skeleton
+        this.root = SkeletonUtils.clone(modelTemplate);
+        this.root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+        this.root.position.copy(position);
+        this.root.userData.agent = this;  // back-ref for raycasting
+
+        this.animator = new AnimationController(this.root, library);
+        this.library  = library;
+
+        // Find the head bone (best-effort) for FPS mode
+        this.headBone = this._findHeadBone();
+
+        // Movement state
+        this.velocity = new THREE.Vector3();
+        this.target = this.root.position.clone();
+        this._facingY = 0;
+        this._nextWanderAt = 0;
+        this.wanderEnabled = true;
+
+        // Start with idle or locomotion-paused pose
+        this.animator.rest();
+    }
+
+    _findHeadBone() {
+        let head = null;
+        this.root.traverse(obj => {
+            if (head) return;
+            if (obj.isBone) {
+                const n = obj.name.toLowerCase();
+                if (n === 'head' || n.endsWith(':head') || n.endsWith('_head') || n.includes('head')) {
+                    head = obj;
+                }
+            }
+        });
+        return head;
+    }
+
+    /** World-space head position (+ small forward offset if rotation known). */
+    getHeadWorldPosition(out = new THREE.Vector3()) {
+        if (this.headBone) {
+            this.headBone.updateWorldMatrix(true, false);
+            return out.setFromMatrixPosition(this.headBone.matrixWorld);
+        }
+        // Fallback: approximate at 1.65m above the agent root
+        return out.copy(this.root.position).add(new THREE.Vector3(0, 1.65, 0));
+    }
+
+    /** World-space forward direction vector (matches agent rotation). */
+    getForward(out = new THREE.Vector3()) {
+        // Model default forward = +Z (same convention as walker.html)
+        out.set(0, 0, 1).applyQuaternion(this.root.quaternion);
+        return out;
+    }
+
+    moveTo(x, z) {
+        this.target.set(x, this.root.position.y, z);
+    }
+
+    _pickWanderTarget() {
+        const p = this.root.position;
+        const ang = Math.random() * Math.PI * 2;
+        const r = 2 + Math.random() * WANDER_RANGE;
+        this.moveTo(p.x + Math.cos(ang) * r, p.z + Math.sin(ang) * r);
+    }
+
+    update(dt, now) {
+        // --- Movement ---
+        const dx = this.target.x - this.root.position.x;
+        const dz = this.target.z - this.root.position.z;
+        const dist = Math.hypot(dx, dz);
+
+        const isMoving = dist > 0.05;
+        if (isMoving) {
+            const step = Math.min(MOVE_SPEED * dt, dist);
+            this.root.position.x += (dx / dist) * step;
+            this.root.position.z += (dz / dist) * step;
+
+            // Smooth rotation toward movement direction (model forward is +Z)
+            const targetY = Math.atan2(dx, dz);
+            let diff = targetY - this._facingY;
+            while (diff >  Math.PI) diff -= Math.PI * 2;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            this._facingY += diff * Math.min(1, dt * 10);
+            this.root.rotation.y = this._facingY;
+
+            // Play locomotion animation
+            const locName = this.library.locomotionName;
+            if (locName) this.animator.play(locName);
+        } else {
+            // Reached target. Wander scheduling.
+            if (this.wanderEnabled) {
+                if (!this._nextWanderAt) this._nextWanderAt = now + randRange(WANDER_PAUSE[0], WANDER_PAUSE[1]);
+                if (now >= this._nextWanderAt) {
+                    this._pickWanderTarget();
+                    this._nextWanderAt = 0;
+                }
+            }
+            this.animator.rest();
+        }
+
+        // --- Animation mixer tick ---
+        this.animator.update(dt);
+    }
+}
+
+// ================================================================
+//  MODULE: SelectionSystem
+//    Raycasts against agent root objects. Emits an onSelect callback.
+// ================================================================
+class SelectionSystem {
+    constructor(camera, domElement) {
+        this.camera = camera;
+        this.dom = domElement;
+        this.raycaster = new THREE.Raycaster();
+        this.ndc = new THREE.Vector2();
+        this.agents = [];
+        this.onSelect = null;
+
+        // Only count as a click if the pointer didn't drag
+        let downX = 0, downY = 0, downBtn = -1;
+        domElement.addEventListener('pointerdown', e => {
+            downX = e.clientX; downY = e.clientY; downBtn = e.button;
+        });
+        domElement.addEventListener('pointerup', e => {
+            if (downBtn !== 0) return;
+            if (Math.hypot(e.clientX - downX, e.clientY - downY) > 4) return;
+            this._pick(e.clientX, e.clientY);
+        });
+    }
+
+    register(agent) { this.agents.push(agent); }
+
+    _pick(sx, sy) {
+        const rect = this.dom.getBoundingClientRect();
+        this.ndc.set(
+            ((sx - rect.left) / rect.width) * 2 - 1,
+            -((sy - rect.top) / rect.height) * 2 + 1
+        );
+        this.raycaster.setFromCamera(this.ndc, this.camera);
+
+        // Gather all meshes under any agent root, remember which agent they belong to
+        const targets = [];
+        for (const agent of this.agents) {
+            agent.root.traverse(o => { if (o.isMesh) targets.push(o); });
+        }
+        const hits = this.raycaster.intersectObjects(targets, false);
+        if (!hits.length) return;
+
+        // Walk up the parents to find the agent root
+        let node = hits[0].object;
+        while (node && !node.userData.agent) node = node.parent;
+        if (node && node.userData.agent && this.onSelect) {
+            this.onSelect(node.userData.agent);
+        }
+    }
+}
+
+// ================================================================
+//  MODULE: CameraController
+//    Manages THREE modes: FREE (OrbitControls), FOLLOW (third-person
+//    chase), FPS (head bone). Completely independent from agents.
+// ================================================================
+const CAM_MODE = { FREE: 'FREE', FOLLOW: 'FOLLOW', FPS: 'FPS' };
+
+class CameraController {
+    constructor(camera, domElement) {
+        this.camera = camera;
+        this.dom = domElement;
+
+        this.orbit = new OrbitControls(camera, domElement);
+        this.orbit.enableDamping = true;
+        this.orbit.dampingFactor = 0.08;
+        this.orbit.target.set(0, 1, 0);
+
+        this.mode = CAM_MODE.FREE;
+        this.target = null;   // current focused Agent (FOLLOW/FPS)
+
+        // Follow config
+        this.followOffset = new THREE.Vector3(0, 2.2, -4.5);  // behind & above
+        this.followLookHeight = 1.2;
+        this.followLerp = 0.08;
+
+        // FPS config
+        this.fpsForwardOffset = 0.15;  // push camera slightly ahead of head
+        this.fpsYaw = 0;
+        this.fpsPitch = 0;
+        this.fpsSensitivity = 0.0025;
+
+        // Pointer lock for FPS mouselook
+        domElement.addEventListener('click', () => {
+            if (this.mode === CAM_MODE.FPS && document.pointerLockElement !== domElement) {
+                domElement.requestPointerLock?.();
+            }
+        });
+        document.addEventListener('mousemove', e => {
+            if (this.mode === CAM_MODE.FPS && document.pointerLockElement === this.dom) {
+                this.fpsYaw   -= e.movementX * this.fpsSensitivity;
+                this.fpsPitch -= e.movementY * this.fpsSensitivity;
+                this.fpsPitch = Math.max(-Math.PI/2 + 0.1, Math.min(Math.PI/2 - 0.1, this.fpsPitch));
+            }
+        });
+    }
+
+    // ---- Mode transitions ----
+
+    setFree() {
+        this.mode = CAM_MODE.FREE;
+        this.target = null;
+        this.orbit.enabled = true;
+        this._exitPointerLock();
+        // Show any previously hidden meshes (FPS hides selected agent meshes)
+        this._restoreTargetVisibility();
+    }
+
+    setFollow(agent) {
+        this.mode = CAM_MODE.FOLLOW;
+        this.target = agent;
+        this.orbit.enabled = false;
+        this._exitPointerLock();
+        this._restoreTargetVisibility();
+    }
+
+    setFPS(agent) {
+        if (!agent) return;
+        this.mode = CAM_MODE.FPS;
+        this.target = agent;
+        this.orbit.enabled = false;
+        // Seed yaw from the agent's current facing so the view doesn't jump
+        this.fpsYaw = agent.root.rotation.y;
+        this.fpsPitch = 0;
+        this._hideTargetMeshes(agent);  // hide own body from first-person
+    }
+
+    toggleFPSFollow() {
+        if (!this.target) return;
+        if (this.mode === CAM_MODE.FPS) this.setFollow(this.target);
+        else this.setFPS(this.target);
+    }
+
+    _exitPointerLock() {
+        if (document.pointerLockElement === this.dom) document.exitPointerLock?.();
+    }
+
+    _hideTargetMeshes(agent) {
+        agent.root.traverse(o => {
+            if (o.isMesh) {
+                if (o.userData._origVisible === undefined) o.userData._origVisible = o.visible;
+                o.visible = false;
+            }
+        });
+    }
+
+    _restoreTargetVisibility() {
+        // Restore visibility on all agents (not just target) for safety
+        const all = [...document.querySelectorAll('canvas')]; // noop; just keep logic local
+        if (!this._lastHiddenAgent) return;
+        this._lastHiddenAgent.root.traverse(o => {
+            if (o.isMesh && o.userData._origVisible !== undefined) {
+                o.visible = o.userData._origVisible;
+                delete o.userData._origVisible;
+            }
+        });
+        this._lastHiddenAgent = null;
+    }
+
+    update(dt) {
+        if (this.mode === CAM_MODE.FREE) {
+            this.orbit.update();
+            return;
+        }
+        if (!this.target) { this.setFree(); return; }
+
+        if (this.mode === CAM_MODE.FOLLOW) {
+            this._updateFollow(dt);
+        } else if (this.mode === CAM_MODE.FPS) {
+            this._updateFPS(dt);
+        }
+    }
+
+    _updateFollow(dt) {
+        const agent = this.target;
+        // Desired camera position = agent position + offset rotated by agent yaw
+        const offset = this.followOffset.clone().applyAxisAngle(new THREE.Vector3(0,1,0), agent.root.rotation.y);
+        const desired = agent.root.position.clone().add(offset);
+
+        // Smooth lerp toward desired position
+        this.camera.position.lerp(desired, 1 - Math.pow(1 - this.followLerp, dt * 60));
+
+        // Look at a point slightly above the agent's root
+        const look = agent.root.position.clone();
+        look.y += this.followLookHeight;
+        this.camera.lookAt(look);
+    }
+
+    _updateFPS(dt) {
+        const agent = this.target;
+
+        // Make sure this agent's meshes are hidden (and others remain visible)
+        if (this._lastHiddenAgent !== agent) {
+            this._restoreTargetVisibility();
+            this._hideTargetMeshes(agent);
+            this._lastHiddenAgent = agent;
+        }
+
+        // Anchor to head bone world position (or approximated eye-height)
+        const head = agent.getHeadWorldPosition();
+
+        // Build orientation: yaw (Y) then pitch (X) — agent's facing is the base
+        const euler = new THREE.Euler(this.fpsPitch, this.fpsYaw, 0, 'YXZ');
+        const quat = new THREE.Quaternion().setFromEuler(euler);
+        this.camera.quaternion.copy(quat);
+
+        // Push slightly forward of the head so we don't see inside the head mesh
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(quat);
+        this.camera.position.copy(head).addScaledVector(forward, this.fpsForwardOffset);
+
+        // Agent body yaw follows camera yaw so body "turns with the view"
+        agent.root.rotation.y = this.fpsYaw;
+        agent._facingY = this.fpsYaw;
+    }
+}
+
+// ================================================================
+//  MODULE: Simulation — orchestrator
+// ================================================================
+class Simulation {
+    constructor() {
+        this.container = document.getElementById('app');
+
+        this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(0x0a0a14);
+        this.scene.fog = new THREE.Fog(0x0a0a14, 20, 80);
+
+        this.camera = new THREE.PerspectiveCamera(60, 1, 0.1, 200);
+        this.camera.position.set(8, 6, 10);
+
+        this.renderer = new THREE.WebGLRenderer({ antialias: true });
+        this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+        this.renderer.shadowMap.enabled = true;
+        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+        this.container.appendChild(this.renderer.domElement);
+
+        this._setupLighting();
+        this._setupGround();
+
+        this.cameraController  = new CameraController(this.camera, this.renderer.domElement);
+        this.selectionSystem   = new SelectionSystem(this.camera, this.renderer.domElement);
+        this.selectionSystem.onSelect = agent => this._onAgentSelected(agent);
+
+        this.library = new AnimationLibrary();
+        this.agents  = [];
+        this.selected = null;
+
+        this.clock = new THREE.Clock();
+        this._bindKeys();
+        this._bindResize();
+    }
+
+    _setupLighting() {
+        this.scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+        const sun = new THREE.DirectionalLight(0xffffff, 1.0);
+        sun.position.set(15, 25, 10);
+        sun.castShadow = true;
+        sun.shadow.mapSize.set(2048, 2048);
+        sun.shadow.camera.left = -20; sun.shadow.camera.right = 20;
+        sun.shadow.camera.top = 20;   sun.shadow.camera.bottom = -20;
+        this.scene.add(sun);
+        this.scene.add(new THREE.HemisphereLight(0x8899ff, 0x222233, 0.3));
+    }
+
+    _setupGround() {
+        const ground = new THREE.Mesh(
+            new THREE.PlaneGeometry(200, 200),
+            new THREE.MeshStandardMaterial({ color: 0x1a1a28, roughness: 0.95 })
+        );
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        this.scene.add(ground);
+
+        const grid = new THREE.GridHelper(200, 100, 0x202038, 0x121220);
+        grid.position.y = 0.001;
+        this.scene.add(grid);
+    }
+
+    async init() {
+        // 1. Load animation library (in parallel)
+        await this.library.load(ANIMATION_SOURCES);
+
+        // 2. Load the rig once. Scale it using its measured height so agents
+        //    end up a reasonable real-world size regardless of source scale.
+        const gltf = await new GLTFLoader().loadAsync(MODEL_URL);
+        const template = gltf.scene;
+        const box = new THREE.Box3().setFromObject(template);
+        const size = box.getSize(new THREE.Vector3());
+        const targetHeight = 1.7;
+        const scale = targetHeight / Math.max(size.y, 0.001);
+        template.scale.setScalar(scale);
+        // Re-measure after scaling to lift feet to y=0
+        template.updateMatrixWorld(true);
+        const box2 = new THREE.Box3().setFromObject(template);
+        template.position.y = -box2.min.y;
+
+        // 3. Spawn agents in a ring
+        for (let i = 0; i < AGENT_COUNT; i++) {
+            const ang = (i / AGENT_COUNT) * Math.PI * 2;
+            const pos = new THREE.Vector3(
+                Math.cos(ang) * AGENT_SPREAD, 0, Math.sin(ang) * AGENT_SPREAD
+            );
+            const agent = new Agent(template, this.library, pos);
+            this.scene.add(agent.root);
+            this.agents.push(agent);
+            this.selectionSystem.register(agent);
+        }
+
+        // 4. Kick off animation/render loop
+        document.getElementById('loading').style.display = 'none';
+        this._updateHUD();
+        this._animate();
+    }
+
+    _onAgentSelected(agent) {
+        this.selected = agent;
+        this.cameraController.setFollow(agent);
+        this._updateHUD();
+    }
+
+    _bindKeys() {
+        window.addEventListener('keydown', e => {
+            if (e.code === 'Escape') {
+                this.selected = null;
+                this.cameraController.setFree();
+                this._updateHUD();
+            } else if (e.code === 'KeyF' && this.selected) {
+                this.cameraController.toggleFPSFollow();
+                this._updateHUD();
+            } else if (e.code === 'Space' && this.selected) {
+                e.preventDefault();
+                this._cycleAnim(this.selected);
+            }
+        });
+    }
+
+    _cycleAnim(agent) {
+        const names = this.library.names();
+        if (!names.length) return;
+        const cur = agent.animator.currentName;
+        const i = names.indexOf(cur);
+        const next = names[(i + 1) % names.length];
+        agent.wanderEnabled = false;          // stop autonomous movement for demo
+        agent.target.copy(agent.root.position); // stop in place
+        agent.animator.play(next, { restart: true });
+        console.log(`[${agent.label}] anim → ${next}`);
+    }
+
+    _bindResize() {
+        const fit = () => {
+            const w = this.container.clientWidth, h = this.container.clientHeight;
+            this.renderer.setSize(w, h);
+            this.camera.aspect = w / h;
+            this.camera.updateProjectionMatrix();
+        };
+        fit();
+        window.addEventListener('resize', fit);
+    }
+
+    _updateHUD() {
+        document.getElementById('mode').textContent = this.cameraController.mode;
+        document.getElementById('sel').textContent = this.selected ? this.selected.label : '—';
+    }
+
+    _animate() {
+        requestAnimationFrame(() => this._animate());
+        const dt  = Math.min(this.clock.getDelta(), 0.1);
+        const now = performance.now();
+
+        for (const agent of this.agents) agent.update(dt, now);
+        this.cameraController.update(dt);
+
+        this.renderer.render(this.scene, this.camera);
+        if ((now | 0) % 8 === 0) this._updateHUD();  // light-touch HUD refresh
+    }
+}
+
+// ================================================================
+//  Helpers
+// ================================================================
+function randRange(a, b) { return a + Math.random() * (b - a); }
+
+// ================================================================
+//  BOOT
+// ================================================================
+const sim = new Simulation();
+sim.init().catch(err => {
+    console.error(err);
+    document.getElementById('loading').textContent = 'Load failed — check console';
+});
+
+// Expose for debugging / external control
+window.sim = sim;
+</script>
+</body>
+</html>

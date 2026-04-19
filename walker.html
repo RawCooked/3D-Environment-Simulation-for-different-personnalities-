@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Walking Character</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #111; overflow: hidden; font-family: system-ui, sans-serif; }
+    #app { width: 100vw; height: 100vh; }
+    #ui {
+        position: absolute;
+        top: 16px; left: 16px;
+        z-index: 10;
+    }
+    #walk-btn {
+        padding: 10px 20px;
+        background: #2a2a40;
+        color: #fff;
+        border: 1px solid #444;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 600;
+        transition: background 0.15s;
+    }
+    #walk-btn:hover { background: #3a3a55; }
+    #walk-btn.active { background: #e94560; border-color: #e94560; }
+    #status {
+        position: absolute;
+        top: 16px; right: 16px;
+        color: #888;
+        font-size: 12px;
+        background: rgba(0,0,0,0.5);
+        padding: 6px 12px;
+        border-radius: 4px;
+    }
+</style>
+
+<script type="importmap">
+{
+    "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+    }
+}
+</script>
+</head>
+<body>
+
+<div id="ui">
+    <button id="walk-btn">Walk Forward</button>
+</div>
+<div id="status">Loading model...</div>
+<div id="app"></div>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader }    from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ================================================================
+//  CONFIG
+// ================================================================
+const MODEL_PATH = 'model.glb';
+const WALK_SPEED = 1.5;   // units per second along +Z
+
+// ================================================================
+//  SCENE SETUP
+// ================================================================
+const container = document.getElementById('app');
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1a28);
+scene.fog = new THREE.Fog(0x1a1a28, 10, 40);
+
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(4, 3, 5);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+container.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.target.set(0, 1, 0);
+
+// Lights
+scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+dirLight.position.set(5, 10, 7);
+dirLight.castShadow = true;
+dirLight.shadow.mapSize.set(1024, 1024);
+dirLight.shadow.camera.left = -10;
+dirLight.shadow.camera.right = 10;
+dirLight.shadow.camera.top = 10;
+dirLight.shadow.camera.bottom = -10;
+scene.add(dirLight);
+
+// Ground
+const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(60, 60),
+    new THREE.MeshStandardMaterial({ color: 0x2a2a3a, roughness: 0.9 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// Grid helper for spatial reference
+const grid = new THREE.GridHelper(60, 60, 0x3a3a55, 0x25253a);
+grid.position.y = 0.001;
+scene.add(grid);
+
+// ================================================================
+//  CHARACTER + ANIMATION STATE
+// ================================================================
+let model       = null;   // the loaded GLB root
+let mixer       = null;   // THREE.AnimationMixer
+let walkAction  = null;   // AnimationAction for walking
+let isWalking   = false;  // movement + animation state flag
+
+// ================================================================
+//  LOAD GLB MODEL
+// ================================================================
+const loader = new GLTFLoader();
+loader.load(
+    MODEL_PATH,
+    (gltf) => {
+        model = gltf.scene;
+
+        // Enable shadows on all meshes
+        model.traverse(obj => {
+            if (obj.isMesh) {
+                obj.castShadow = true;
+                obj.receiveShadow = true;
+            }
+        });
+
+        // ── Center model at origin, feet on ground ──
+        const box = new THREE.Box3().setFromObject(model);
+        const center = box.getCenter(new THREE.Vector3());
+        const size   = box.getSize(new THREE.Vector3());
+        // Shift so XZ is centered at origin and Y=0 sits at model's feet
+        model.position.x -= center.x;
+        model.position.z -= center.z;
+        model.position.y -= box.min.y;
+
+        // Face +Z (direction of movement)
+        model.rotation.y = 0;
+
+        scene.add(model);
+
+        // ── Animation setup ──
+        if (gltf.animations && gltf.animations.length > 0) {
+            mixer = new THREE.AnimationMixer(model);
+            // First animation = walk
+            const walkClip = gltf.animations[0];
+            walkAction = mixer.clipAction(walkClip);
+            walkAction.setLoop(THREE.LoopRepeat);
+            walkAction.clampWhenFinished = false;
+            // Don't play yet — waits for button click
+            document.getElementById('status').textContent =
+                `Loaded · animation: "${walkClip.name}" (${walkClip.duration.toFixed(2)}s)`;
+        } else {
+            document.getElementById('status').textContent = 'Loaded · no animations found';
+        }
+
+        // Frame the camera on the model
+        const height = size.y;
+        controls.target.set(0, height / 2, 0);
+        camera.position.set(height * 2, height * 1.2, height * 2.5);
+        controls.update();
+    },
+    (progress) => {
+        if (progress.total) {
+            const pct = Math.round((progress.loaded / progress.total) * 100);
+            document.getElementById('status').textContent = `Loading... ${pct}%`;
+        }
+    },
+    (error) => {
+        console.error('GLB load failed:', error);
+        document.getElementById('status').textContent = 'Load failed — check console';
+    }
+);
+
+// ================================================================
+//  UI — Walk Forward toggle
+// ================================================================
+const walkBtn = document.getElementById('walk-btn');
+walkBtn.addEventListener('click', () => {
+    if (!walkAction) return;   // model not yet ready
+
+    isWalking = !isWalking;
+
+    if (isWalking) {
+        walkAction.paused = false;
+        walkAction.play();
+        walkBtn.classList.add('active');
+        walkBtn.textContent = 'Stop';
+    } else {
+        // Freeze in current pose: pause the action so mixer.update won't advance it
+        walkAction.paused = true;
+        walkBtn.classList.remove('active');
+        walkBtn.textContent = 'Walk Forward';
+    }
+});
+
+// ================================================================
+//  RENDER LOOP
+// ================================================================
+const clock = new THREE.Clock();
+
+function animate() {
+    requestAnimationFrame(animate);
+    const delta = clock.getDelta();
+
+    // ── Movement ──
+    if (isWalking && model) {
+        model.position.z += WALK_SPEED * delta;
+        // Face +Z direction (already rotation.y = 0, kept explicit for clarity)
+        model.rotation.y = 0;
+    }
+
+    // ── Animation ──
+    // mixer.update advances the animation. When paused, it stays on the current frame,
+    // so the character freezes in its last pose (no idle fallback).
+    if (mixer) mixer.update(delta);
+
+    controls.update();
+    renderer.render(scene, camera);
+}
+animate();
+
+// ================================================================
+//  RESIZE
+// ================================================================
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,1416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Life Simulation Engine v2</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0a0a14;color:#ccc;display:flex;height:100vh;overflow:hidden;font-size:12px}
+
+/* ── Panels ── */
+.panel{width:265px;background:#111120;display:flex;flex-direction:column;overflow-y:auto;padding:8px;gap:5px;flex-shrink:0}
+.panel::-webkit-scrollbar{width:3px}.panel::-webkit-scrollbar-thumb{background:#333;border-radius:2px}
+.panel-left{border-right:1px solid #1e1e35}.panel-right{border-left:1px solid #1e1e35}
+.sec{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1.1px;color:#e94560;padding:5px 0 3px;border-bottom:1px solid #1e1e35;margin-top:3px}
+.btn{padding:5px 8px;border:1px solid #1e1e35;background:#14142a;color:#bbb;border-radius:4px;cursor:pointer;font-size:11px;text-align:left;transition:background .12s,border-color .12s}
+.btn:hover{background:#1e1e3a;border-color:#e94560;color:#eee}.btn:active{transform:scale(.97)}
+.btn:disabled{opacity:.3;cursor:not-allowed}.btn.active{background:#e94560;color:#fff;border-color:#e94560}
+.btn-place{border-left:3px solid #53d8fb}.btn-action{border-left:3px solid #e94560}
+.btn-interact{border-left:3px solid #95e1d3}.btn-add{border-left:3px solid #f4a261}
+.btn-room{border-left:3px solid #9b59b6}.btn-export{border-left:3px solid #f1c40f;background:#1a1a10}
+
+/* State bars */
+.sb{background:#0a0a12;border:1px solid #1e1e35;border-radius:4px;padding:6px;margin-bottom:2px}
+.sr{display:flex;align-items:center;margin-bottom:3px;font-size:10px}
+.sr:last-child{margin-bottom:0}
+.sl{width:52px;color:#666;font-size:9px}.bbg{flex:1;height:5px;background:#08080f;border-radius:3px;margin:0 4px;overflow:hidden}
+.bf{height:100%;border-radius:3px;transition:width .3s}.sv{width:22px;text-align:right;font-size:8px;color:#666}
+
+/* Agent chips */
+.chip{display:inline-flex;align-items:center;gap:3px;padding:3px 7px;border-radius:3px;border:1px solid #1e1e35;cursor:pointer;font-size:10px;margin:1px}
+.chip:hover{border-color:#e94560}.chip.sel{border-color:#e94560;background:#1e0a1a}
+.dot{width:7px;height:7px;border-radius:50%}
+
+/* Canvas */
+#vp{flex:1;position:relative;background:#060610;overflow:hidden}
+#vp canvas{display:block}
+#hud{position:absolute;top:8px;left:8px;background:rgba(14,14,28,.88);padding:5px 10px;border-radius:4px;font-size:10px;border:1px solid #1e1e35;pointer-events:none;z-index:5}
+#hint{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);background:rgba(233,69,96,.85);padding:5px 16px;border-radius:4px;font-size:11px;display:none;pointer-events:none;z-index:5}
+#zoom-display{position:absolute;top:8px;right:8px;background:rgba(14,14,28,.88);padding:5px 10px;border-radius:4px;font-size:10px;border:1px solid #1e1e35;pointer-events:none;z-index:5}
+
+/* Log */
+#lw{flex:1;min-height:0;display:flex;flex-direction:column}
+#log{flex:1;overflow-y:auto;font-size:8px;background:#08080f;border:1px solid #1e1e35;border-radius:3px;padding:4px;line-height:1.5}
+#log .l{color:#444}#log .l.act{color:#53d8fb}#log .l.warn{color:#f4a261}#log .l.int{color:#95e1d3}
+
+.row{display:flex;gap:4px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+
+<!-- ═══════════ LEFT PANEL ═══════════ -->
+<div class="panel panel-left">
+    <div class="sec">Rooms</div>
+    <div class="row">
+        <button class="btn btn-room" data-room="living_room">+ Living Room</button>
+        <button class="btn btn-room" data-room="bedroom">+ Bedroom</button>
+        <button class="btn btn-room" data-room="kitchen_room">+ Kitchen</button>
+        <button class="btn btn-room" data-room="bathroom_room">+ Bathroom</button>
+    </div>
+    <button class="btn btn-add" id="btn-add-door">+ Add Door (click shared wall)</button>
+
+    <div class="sec">Place Objects</div>
+    <div class="row" id="object-btns">
+        <button class="btn btn-place" data-place="kitchen">&#x1F373; Kitchen</button>
+        <button class="btn btn-place" data-place="bed">&#x1F6CF; Bed</button>
+        <button class="btn btn-place" data-place="bathroom">&#x1F6BF; Bathroom</button>
+        <button class="btn btn-place" data-place="tv">&#x1F4FA; TV</button>
+        <button class="btn btn-place" data-place="console">&#x1F3AE; Console</button>
+        <button class="btn btn-place" data-place="sofa">&#x1FA91; Sofa</button>
+        <button class="btn btn-place" data-place="table">&#x1F4CB; Table</button>
+    </div>
+
+    <div class="sec">Agents</div>
+    <button class="btn btn-add" id="btn-add-agent">+ Add Agent</button>
+    <div id="agent-chips-left"></div>
+
+    <div class="sec">Manual Actions</div>
+    <div id="action-btns"></div>
+
+    <div class="sec">Selected Agent</div>
+    <div id="state-display" class="sb" style="color:#555">No agent selected</div>
+
+    <div class="sec">Export</div>
+    <button class="btn btn-export" id="btn-export">&#x1F4E5; Export Logs (JSON)</button>
+
+    <div id="lw">
+        <div class="sec">Log</div>
+        <div id="log"></div>
+    </div>
+</div>
+
+<!-- ═══════════ CANVAS ═══════════ -->
+<div id="vp">
+    <canvas id="c"></canvas>
+    <div id="hud">Scroll=zoom, Drag=pan, Click agent=select</div>
+    <div id="hint">Click to place</div>
+    <div id="zoom-display">100%</div>
+</div>
+
+<!-- ═══════════ RIGHT PANEL ═══════════ -->
+<div class="panel panel-right">
+    <div class="sec">Interactions</div>
+    <p style="font-size:9px;color:#555">Select Agent A → B</p>
+    <div class="sec" style="font-size:8px">Agent A</div><div id="ia-chips"></div>
+    <div style="text-align:center;color:#e94560;font-size:14px">&darr;</div>
+    <div class="sec" style="font-size:8px;margin-top:0">Agent B</div><div id="ib-chips"></div>
+    <div class="sec">Actions</div><div id="int-btns"></div>
+    <div class="sec">Relationship</div><div id="rel-display" class="sb" style="font-size:10px;color:#555">Select two agents</div>
+    <div class="sec">Agent B State</div><div id="tgt-state" class="sb" style="font-size:10px;color:#555">&mdash;</div>
+</div>
+
+<script>
+"use strict";
+
+// ================================================================
+//  CONSTANTS
+// ================================================================
+const GRID        = 40;
+const OBJ_W       = 50;
+const OBJ_H       = 50;
+const AGENT_R     = 12;
+const MOVE_SPEED  = 100;
+const PROXIMITY   = 50;
+const DOOR_WIDTH  = 30;
+const WALL_THICK  = 6;
+const AUTO_MIN    = 4000;
+const AUTO_MAX    = 6000;
+const WANDER_IDLE = 5000;
+
+const ROOM_DEFAULTS = {
+    living_room:   { w: 360, h: 280, color: '#1a1a30', label: 'Living Room' },
+    bedroom:       { w: 300, h: 240, color: '#1a1428', label: 'Bedroom' },
+    kitchen_room:  { w: 280, h: 220, color: '#1a1e14', label: 'Kitchen' },
+    bathroom_room: { w: 220, h: 200, color: '#141a1e', label: 'Bathroom' },
+};
+
+const OBJ_DEFS = {
+    kitchen:  { icon:'\u{1F373}', color:'#f4a261', label:'Kitchen',  activity:null },
+    bed:      { icon:'\u{1F6CF}', color:'#7ec8e3', label:'Bed',      activity:null },
+    bathroom: { icon:'\u{1F6BF}', color:'#95e1d3', label:'Bathroom', activity:null },
+    tv:       { icon:'\u{1F4FA}', color:'#e67e22', label:'TV',       activity:'watch_tv' },
+    console:  { icon:'\u{1F3AE}', color:'#9b59b6', label:'Console',  activity:'play_games' },
+    sofa:     { icon:'\u{1FA91}', color:'#e74c3c', label:'Sofa',     activity:'relax' },
+    table:    { icon:'\u{1F4CB}', color:'#95a5a6', label:'Table',    activity:'sit' },
+};
+
+const AGENT_COLORS = ['#e94560','#2ecc71','#3498db','#f1c40f','#9b59b6','#e67e22','#1abc9c','#e74c3c','#00cec9','#fd79a8'];
+
+// ================================================================
+//  UTILITIES
+// ================================================================
+const clamp  = (v,lo,hi) => Math.max(lo,Math.min(hi,v));
+const dist   = (a,b) => Math.hypot(a.x-b.x, a.y-b.y);
+const randR  = (lo,hi) => lo+Math.random()*(hi-lo);
+const randI  = (lo,hi) => Math.floor(randR(lo,hi+1));
+const pick   = a => a[Math.floor(Math.random()*a.length)];
+const snap   = (v,g) => Math.round(v/g)*g;
+const rectContains = (r,px,py) => px>=r.x && px<=r.x+r.w && py>=r.y && py<=r.y+r.h;
+
+// ================================================================
+//  MODULE: Room
+// ================================================================
+class Room {
+    static _n = 0;
+    constructor(type, x, y, w, h) {
+        Room._n++;
+        this.id    = `room_${Room._n}`;
+        this.type  = type;
+        this.label = ROOM_DEFAULTS[type]?.label || type;
+        this.color = ROOM_DEFAULTS[type]?.color || '#1a1a2e';
+        this.x = x; this.y = y;
+        this.w = w || ROOM_DEFAULTS[type]?.w || 300;
+        this.h = h || ROOM_DEFAULTS[type]?.h || 240;
+    }
+    get cx() { return this.x + this.w/2; }
+    get cy() { return this.y + this.h/2; }
+    get right()  { return this.x + this.w; }
+    get bottom() { return this.y + this.h; }
+    contains(px,py) { return rectContains(this,px,py); }
+    // Interior bounds (inset by wall thickness)
+    innerRect() {
+        const p = WALL_THICK;
+        return { x:this.x+p, y:this.y+p, w:this.w-p*2, h:this.h-p*2 };
+    }
+}
+
+// ================================================================
+//  MODULE: Door — connects two rooms
+// ================================================================
+class Door {
+    static _n = 0;
+    constructor(roomA_id, roomB_id, x, y, orientation) {
+        Door._n++;
+        this.id = `door_${Door._n}`;
+        this.roomA = roomA_id;
+        this.roomB = roomB_id;
+        this.x = x; this.y = y;
+        this.orientation = orientation; // 'h' = horizontal wall, 'v' = vertical wall
+    }
+    connects(rId) { return this.roomA === rId || this.roomB === rId; }
+    otherRoom(rId) { return this.roomA === rId ? this.roomB : this.roomA; }
+}
+
+// ================================================================
+//  MODULE: WorldManager — rooms + doors + pathfinding
+// ================================================================
+class WorldManager {
+    constructor() {
+        this.rooms = [];
+        this.doors = [];
+    }
+
+    addRoom(type, x, y, w, h) {
+        const r = new Room(type, x, y, w, h);
+        this.rooms.push(r);
+        return r;
+    }
+
+    getRoom(id) { return this.rooms.find(r => r.id === id); }
+    roomAt(px, py) { return this.rooms.find(r => r.contains(px, py)); }
+
+    addDoor(roomA_id, roomB_id, x, y, orientation) {
+        const d = new Door(roomA_id, roomB_id, x, y, orientation);
+        this.doors.push(d);
+        return d;
+    }
+
+    doorsForRoom(roomId) { return this.doors.filter(d => d.connects(roomId)); }
+
+    // Find shared wall between two rooms. Returns {x, y, orientation} or null.
+    findSharedWall(rA, rB) {
+        const tol = WALL_THICK + 2;
+        // A's right == B's left
+        if (Math.abs(rA.right - rB.x) < tol) {
+            const oy = Math.max(rA.y, rB.y);
+            const oh = Math.min(rA.bottom, rB.bottom) - oy;
+            if (oh > DOOR_WIDTH) return { x: rA.right, y: oy + oh/2, orientation: 'v' };
+        }
+        // A's left == B's right
+        if (Math.abs(rA.x - rB.right) < tol) {
+            const oy = Math.max(rA.y, rB.y);
+            const oh = Math.min(rA.bottom, rB.bottom) - oy;
+            if (oh > DOOR_WIDTH) return { x: rA.x, y: oy + oh/2, orientation: 'v' };
+        }
+        // A's bottom == B's top
+        if (Math.abs(rA.bottom - rB.y) < tol) {
+            const ox = Math.max(rA.x, rB.x);
+            const ow = Math.min(rA.right, rB.right) - ox;
+            if (ow > DOOR_WIDTH) return { x: ox + ow/2, y: rA.bottom, orientation: 'h' };
+        }
+        // A's top == B's bottom
+        if (Math.abs(rA.y - rB.bottom) < tol) {
+            const ox = Math.max(rA.x, rB.x);
+            const ow = Math.min(rA.right, rB.right) - ox;
+            if (ow > DOOR_WIDTH) return { x: ox + ow/2, y: rA.y, orientation: 'h' };
+        }
+        return null;
+    }
+
+    // BFS pathfinding: returns array of { door, room } steps, or null
+    findPath(fromRoomId, toRoomId) {
+        if (fromRoomId === toRoomId) return [];
+        const visited = new Set([fromRoomId]);
+        const queue = [[fromRoomId, []]];
+        while (queue.length) {
+            const [cur, path] = queue.shift();
+            for (const door of this.doorsForRoom(cur)) {
+                const next = door.otherRoom(cur);
+                if (visited.has(next)) continue;
+                const step = [...path, { door, roomId: next }];
+                if (next === toRoomId) return step;
+                visited.add(next);
+                queue.push([next, step]);
+            }
+        }
+        return null;
+    }
+
+    // Build waypoints for agent to reach (tx,ty) from their current room
+    getWaypoints(fromRoomId, tx, ty) {
+        const targetRoom = this.roomAt(tx, ty);
+        if (!targetRoom) return null;
+        if (fromRoomId === targetRoom.id) return [{ x: tx, y: ty }];
+        const path = this.findPath(fromRoomId, targetRoom.id);
+        if (!path) return null;
+        const wps = [];
+        for (const step of path) wps.push({ x: step.door.x, y: step.door.y, doorId: step.door.id, enterRoom: step.roomId });
+        wps.push({ x: tx, y: ty });
+        return wps;
+    }
+
+    // Auto-create doors between all adjacent rooms
+    autoCreateDoors() {
+        for (let i = 0; i < this.rooms.length; i++) {
+            for (let j = i+1; j < this.rooms.length; j++) {
+                const rA = this.rooms[i], rB = this.rooms[j];
+                // Check if door already exists
+                const exists = this.doors.some(d =>
+                    (d.roomA===rA.id && d.roomB===rB.id) || (d.roomA===rB.id && d.roomB===rA.id));
+                if (exists) continue;
+                const wall = this.findSharedWall(rA, rB);
+                if (wall) this.addDoor(rA.id, rB.id, wall.x, wall.y, wall.orientation);
+            }
+        }
+    }
+}
+
+// ================================================================
+//  MODULE: WorldObject — placeable, occupiable
+// ================================================================
+class WorldObject {
+    static _c = {};
+    constructor(type, x, y, roomId) {
+        WorldObject._c[type] = (WorldObject._c[type] || 0) + 1;
+        this.id     = `${type}_${WorldObject._c[type]}`;
+        this.type   = type;
+        this.x = x; this.y = y;
+        this.w = OBJ_W; this.h = OBJ_H;
+        this.roomId = roomId;
+        this.occupiedBy = null;  // agent id or null
+    }
+    get interactionPoint() { return { x: this.x + this.w/2, y: this.y + this.h + AGENT_R + 4 }; }
+    get isOccupied() { return this.occupiedBy !== null; }
+    get def() { return OBJ_DEFS[this.type]; }
+}
+
+// ================================================================
+//  MODULE: Personality
+// ================================================================
+class Personality {
+    constructor(o={}) {
+        this.socialness = o.socialness ?? randI(20,80);
+        this.aggression = o.aggression ?? randI(10,60);
+        this.laziness   = o.laziness   ?? randI(10,70);
+        this.curiosity  = o.curiosity  ?? randI(20,80);
+    }
+    toJSON() { return {socialness:this.socialness,aggression:this.aggression,laziness:this.laziness,curiosity:this.curiosity}; }
+}
+
+// ================================================================
+//  MODULE: StateSystem — needs + boredom + mood
+// ================================================================
+class StateSystem {
+    constructor() {
+        this.energy  = randR(60,90);
+        this.hunger  = randR(10,40);
+        this.hygiene = randR(60,90);
+        this.comfort = randR(50,80);
+        this.boredom = randR(10,40);
+        this.mood    = 100;
+    }
+    modify(c) { for(const[k,v]of Object.entries(c)) if(k in this) this[k]+=v; this._cl(); this._dm(); }
+    tick(dt) {
+        this.energy -= 0.6*dt; this.hunger += 0.5*dt;
+        this.hygiene -= 0.3*dt; this.comfort -= 0.15*dt;
+        this.boredom += 0.7*dt;
+        this._cl(); this._dm();
+    }
+    _cl() {
+        this.energy=clamp(this.energy,0,100); this.hunger=clamp(this.hunger,0,100);
+        this.hygiene=clamp(this.hygiene,0,100); this.comfort=clamp(this.comfort,0,100);
+        this.boredom=clamp(this.boredom,0,100); this.mood=clamp(this.mood,0,100);
+    }
+    _dm() {
+        this.mood = clamp(
+            0.25*this.energy + 0.25*(100-this.hunger) + 0.10*this.hygiene +
+            0.15*this.comfort + 0.25*(100-this.boredom), 0, 100);
+    }
+    get moodLabel() { return this.mood>75?'happy':this.mood>50?'fine':this.mood>30?'sad':'miserable'; }
+    toJSON() {
+        return { energy:Math.round(this.energy), hunger:Math.round(this.hunger),
+            hygiene:Math.round(this.hygiene), comfort:Math.round(this.comfort),
+            boredom:Math.round(this.boredom), mood:Math.round(this.mood), moodLabel:this.moodLabel };
+    }
+}
+
+// ================================================================
+//  MODULE: RelationshipMap
+// ================================================================
+class RelationshipMap {
+    constructor(){this._s={}}
+    _k(a,b){return a+'::'+b}
+    get(a,b){return this._s[this._k(a,b)]??50}
+    modify(a,b,d){const k=this._k(a,b);this._s[k]=clamp((this._s[k]??50)+d,0,100)}
+    modifyBoth(a,b,d){this.modify(a,b,d);this.modify(b,a,d)}
+}
+
+// ================================================================
+//  MODULE: LogSystem — structured event log with export
+// ================================================================
+class LogSystem {
+    constructor() {
+        this.events = [];
+        this._startTime = Date.now();
+    }
+    record(agent, action, target, details) {
+        const ev = {
+            time: ((Date.now() - this._startTime) / 1000).toFixed(1),
+            timestamp: new Date().toISOString(),
+            agent: agent?.id || null,
+            agentLabel: agent?.label || null,
+            action,
+            target: target || null,
+            details: details || null,
+        };
+        this.events.push(ev);
+        return ev;
+    }
+    export() {
+        return JSON.stringify({ exportedAt: new Date().toISOString(), eventCount: this.events.length, events: this.events }, null, 2);
+    }
+}
+
+// ================================================================
+//  MODULE: CameraSystem
+// ================================================================
+class CameraSystem {
+    constructor(canvas) {
+        this.x = 0; this.y = 0;   // world center
+        this.zoom = 1;
+        this.targetX = 0; this.targetY = 0; this.targetZoom = 1;
+        this._canvas = canvas;
+        this._dragging = false;
+        this._dragStartX = 0; this._dragStartY = 0;
+        this._camStartX = 0; this._camStartY = 0;
+        this._bindEvents();
+    }
+    _bindEvents() {
+        const c = this._canvas;
+        c.addEventListener('wheel', e => {
+            e.preventDefault();
+            const factor = e.deltaY < 0 ? 1.12 : 0.89;
+            this.targetZoom = clamp(this.targetZoom * factor, 0.2, 4);
+        }, { passive: false });
+
+        c.addEventListener('mousedown', e => {
+            if (e.button === 1 || e.button === 2 || (e.button === 0 && e.shiftKey)) {
+                this._dragging = true;
+                this._dragStartX = e.clientX; this._dragStartY = e.clientY;
+                this._camStartX = this.targetX; this._camStartY = this.targetY;
+                e.preventDefault();
+            }
+        });
+        window.addEventListener('mousemove', e => {
+            if (!this._dragging) return;
+            this.targetX = this._camStartX - (e.clientX - this._dragStartX) / this.zoom;
+            this.targetY = this._camStartY - (e.clientY - this._dragStartY) / this.zoom;
+        });
+        window.addEventListener('mouseup', () => { this._dragging = false; });
+        c.addEventListener('contextmenu', e => e.preventDefault());
+    }
+    update(dt) {
+        const s = 1 - Math.pow(0.001, dt);
+        this.x += (this.targetX - this.x) * s;
+        this.y += (this.targetY - this.y) * s;
+        this.zoom += (this.targetZoom - this.zoom) * s;
+    }
+    screenToWorld(sx, sy) {
+        const cw = this._canvas.parentElement.clientWidth;
+        const ch = this._canvas.parentElement.clientHeight;
+        return {
+            x: (sx - cw/2) / this.zoom + this.x,
+            y: (sy - ch/2) / this.zoom + this.y,
+        };
+    }
+    applyTransform(ctx) {
+        const cw = this._canvas.parentElement.clientWidth;
+        const ch = this._canvas.parentElement.clientHeight;
+        ctx.translate(cw/2, ch/2);
+        ctx.scale(this.zoom, this.zoom);
+        ctx.translate(-this.x, -this.y);
+    }
+    get isDragging() { return this._dragging; }
+}
+
+// ================================================================
+//  MODULE: Agent — with multi-waypoint door-based movement
+// ================================================================
+class Agent {
+    static _n = 0;
+    constructor(x, y, roomId) {
+        Agent._n++;
+        this.id    = `agent_${Agent._n}`;
+        this.label = `Agent ${Agent._n}`;
+        this.color = AGENT_COLORS[(Agent._n-1) % AGENT_COLORS.length];
+        this.x = x; this.y = y;
+        this.targetX = x; this.targetY = y;
+        this.facing = 0;
+        this.currentRoom = roomId;
+
+        this.state       = new StateSystem();
+        this.personality  = new Personality();
+
+        this.busy = false;
+        this.currentAction = null;
+        this._moveResolve = null;
+        this._waypoints = [];       // queue of {x,y,doorId?,enterRoom?}
+        this._currentWP = null;
+
+        this._lastActionTime = performance.now();
+        this._autoInterval = randR(AUTO_MIN, AUTO_MAX);
+        this._lastIdleStart = performance.now();
+        this._isAutonomous = true;
+    }
+
+    get isMoving() { return Math.hypot(this.targetX-this.x, this.targetY-this.y) > 0.8 || this._waypoints.length > 0; }
+
+    // High-level: navigate through doors to target
+    async navigateTo(tx, ty) {
+        const wps = game.world.getWaypoints(this.currentRoom, tx, ty);
+        if (!wps) { game.log(`${this.label}: no path!`, 'warn'); return; }
+        for (const wp of wps) {
+            this.targetX = wp.x; this.targetY = wp.y;
+            await new Promise(resolve => {
+                if (Math.hypot(this.targetX-this.x, this.targetY-this.y) < 1) { resolve(); return; }
+                this._moveResolve = resolve;
+            });
+            // Update current room when passing through a door
+            if (wp.enterRoom) this.currentRoom = wp.enterRoom;
+        }
+    }
+
+    // Simple single-step move (within a room)
+    moveTo(x, y) {
+        this.targetX = x; this.targetY = y;
+        return new Promise(resolve => {
+            if (Math.hypot(this.targetX-this.x, this.targetY-this.y) < 1) { resolve(); return; }
+            this._moveResolve = resolve;
+        });
+    }
+
+    updateMovement(dt) {
+        const dx = this.targetX - this.x;
+        const dy = this.targetY - this.y;
+        const d = Math.hypot(dx, dy);
+        if (d < 0.8) {
+            if (this._moveResolve) { const r=this._moveResolve; this._moveResolve=null; r(); }
+            return;
+        }
+        const step = Math.min(MOVE_SPEED * dt, d);
+        this.x += (dx/d)*step;
+        this.y += (dy/d)*step;
+        this.facing = Math.atan2(dy,dx);
+    }
+
+    async executeAction(name, ctx) {
+        if (this.busy) return false;
+        return game.actionSystem.execute(name, this, ctx);
+    }
+    async performAction(n,c) { return this.executeAction(n,c); }
+    async decideNextAction(context) { return null; }
+}
+
+// ================================================================
+//  MODULE: ActionSystem
+// ================================================================
+class ActionSystem {
+    constructor(g) { this.game=g; this.actions={}; }
+    register(n,d) { this.actions[n]=d; }
+    getAvailableActions() { return Object.keys(this.actions); }
+    async execute(name, agent, ctx) {
+        const a = this.actions[name];
+        if (!a) { this.game.log(`Unknown: ${name}`,'warn'); return false; }
+        agent.busy = true;
+        agent.currentAction = name;
+        agent._lastActionTime = performance.now();
+        this.game.log(`${agent.label}: ${name}`, 'act');
+        this.game.logSystem.record(agent, name, a.target);
+        try { await a.fn(agent, this.game, ctx); }
+        catch(e) { this.game.log(`Error: ${e.message}`,'warn'); }
+        agent.busy = false;
+        agent.currentAction = null;
+        agent._lastActionTime = performance.now();
+        agent._lastIdleStart = performance.now();
+        return true;
+    }
+}
+
+// ================================================================
+//  MODULE: InteractionSystem
+// ================================================================
+class InteractionSystem {
+    constructor(g) { this.game=g; this.interactions={}; this._init(); }
+    register(n,d) { this.interactions[n]=d; }
+    getAvailableInteractions() { return Object.keys(this.interactions); }
+
+    async execute(name, actor, target) {
+        const int = this.interactions[name];
+        if (!int) return false;
+        if (actor.busy) { this.game.log(`${actor.label} busy`,'warn'); return false; }
+        actor.busy = true;
+        actor.currentAction = `${name} → ${target.label}`;
+        this.game.log(`${actor.label} → ${target.label}: ${name}`, 'int');
+        this.game.logSystem.record(actor, name, target.id, { targetAgent: target.id });
+        if (dist(actor, target) > PROXIMITY) {
+            const ang = Math.atan2(target.y-actor.y, target.x-actor.x);
+            await actor.navigateTo(target.x - Math.cos(ang)*PROXIMITY*0.5, target.y - Math.sin(ang)*PROXIMITY*0.5);
+        }
+        try { await int.fn(actor, target, this.game); }
+        catch(e) { this.game.log(`Error: ${e.message}`,'warn'); }
+        actor.busy = false; actor.currentAction = null;
+        actor._lastActionTime = performance.now();
+        actor._lastIdleStart = performance.now();
+        return true;
+    }
+
+    _init() {
+        const wait = ms => new Promise(r=>setTimeout(r,ms));
+        const rel = () => this.game.relationships;
+
+        this.register('greet', { fn: async(a,b,g)=>{ await wait(800); rel().modifyBoth(a.id,b.id,3); a.state.modify({comfort:5}); b.state.modify({comfort:3}); g.log(`${a.label} waved at ${b.label}`,'int'); }});
+        this.register('talk', { fn: async(a,b,g)=>{ await wait(1500); rel().modifyBoth(a.id,b.id,5); a.state.modify({comfort:6,boredom:-8}); b.state.modify({comfort:6,boredom:-8}); g.log(`${a.label} and ${b.label} chatted`,'int'); }});
+        this.register('compliment', { fn: async(a,b,g)=>{ await wait(800); rel().modify(b.id,a.id,8); b.state.modify({comfort:10}); g.log(`${a.label} complimented ${b.label}`,'int'); }});
+        this.register('insult', { fn: async(a,b,g)=>{ await wait(600); rel().modify(b.id,a.id,-12); rel().modify(a.id,b.id,-4); b.state.modify({comfort:-15}); g.log(`${a.label} insulted ${b.label}!`,'warn'); }});
+        this.register('encourage', { fn: async(a,b,g)=>{ await wait(1000); rel().modify(b.id,a.id,6); b.state.modify({comfort:8,energy:5}); g.log(`${a.label} encouraged ${b.label}`,'int'); }});
+        this.register('invite_watch_tv', { fn: async(a,b,g)=>{
+            const tv = g.findObject('tv');
+            if (!tv){ g.log('No TV!','warn'); return; }
+            const pt = tv.interactionPoint;
+            g.log(`${a.label} invited ${b.label} to watch TV`,'int');
+            await Promise.all([a.navigateTo(pt.x-15,pt.y), b.navigateTo(pt.x+15,pt.y)]);
+            await wait(2000);
+            a.state.modify({boredom:-30,comfort:8}); b.state.modify({boredom:-30,comfort:8});
+            rel().modifyBoth(a.id,b.id,5);
+            g.log(`${a.label} and ${b.label} watched TV together`,'int');
+        }});
+        this.register('invite_play', { fn: async(a,b,g)=>{
+            const con = g.findObject('console');
+            if (!con){ g.log('No console!','warn'); return; }
+            const pt = con.interactionPoint;
+            g.log(`${a.label} invited ${b.label} to play`,'int');
+            await Promise.all([a.navigateTo(pt.x-15,pt.y), b.navigateTo(pt.x+15,pt.y)]);
+            await wait(2500);
+            a.state.modify({boredom:-35,comfort:6}); b.state.modify({boredom:-35,comfort:6});
+            rel().modifyBoth(a.id,b.id,6);
+            g.log(`${a.label} and ${b.label} played together`,'int');
+        }});
+        this.register('complain', { fn: async(a,b,g)=>{ await wait(1000); rel().modify(b.id,a.id,-3); a.state.modify({comfort:4}); b.state.modify({comfort:-5}); g.log(`${a.label} complained to ${b.label}`,'int'); }});
+    }
+}
+
+// ================================================================
+//  MODULE: AutonomySystem — boredom-aware rule-based
+// ================================================================
+class AutonomySystem {
+    constructor(g) { this.game = g; }
+
+    update(agent, now) {
+        if (agent.busy || !agent._isAutonomous) return;
+        const elapsed = now - agent._lastActionTime;
+        if (elapsed < agent._autoInterval) {
+            if (now - agent._lastIdleStart > WANDER_IDLE && !agent.isMoving) {
+                this._smallWander(agent);
+                agent._lastIdleStart = now;
+            }
+            return;
+        }
+        agent._autoInterval = randR(AUTO_MIN, AUTO_MAX);
+        const action = this._decide(agent);
+        if (action) agent.executeAction(action);
+    }
+
+    _decide(agent) {
+        const s = agent.state, p = agent.personality;
+
+        // Urgent needs
+        if (s.energy < 20) return 'sleep';
+        if (s.hunger > 75) return 'eat';
+        if (s.hygiene < 25) return 'use_toilet';
+
+        // Boredom — critical new need
+        if (s.boredom > 70) return this._findEntertainment(agent);
+        if (s.boredom > 50 && p.curiosity > 50) return this._findEntertainment(agent);
+
+        // Moderate needs
+        if (s.energy < 45 && p.laziness > 50) return 'sleep';
+        if (s.hunger > 50) return 'eat';
+        if (s.hygiene < 45) return 'use_toilet';
+
+        // Social
+        if (p.socialness > 40 && Math.random() < p.socialness/150) {
+            const near = this.game.agents.find(o => o!==agent && !o.busy && dist(agent,o)<PROXIMITY*3);
+            if (near) { this._autoInteract(agent, near); return null; }
+        }
+
+        if (p.curiosity > 50 && Math.random() < 0.5) return 'wander';
+        return Math.random() < 0.6 ? 'wander' : 'idle';
+    }
+
+    _findEntertainment(agent) {
+        // Find an unoccupied entertainment object
+        const entertainTypes = ['tv','console','sofa'];
+        for (const type of entertainTypes) {
+            const obj = this.game.objects.find(o => o.type === type && !o.isOccupied);
+            if (obj) {
+                const actName = OBJ_DEFS[type]?.activity;
+                if (actName && this.game.actionSystem.actions[actName]) return actName;
+            }
+        }
+        return 'wander';
+    }
+
+    _autoInteract(actor, target) {
+        const p = actor.personality;
+        const r = this.game.relationships.get(actor.id, target.id);
+        let ch;
+        if (p.aggression > 60 && r < 30) ch = ['insult','complain'];
+        else if (p.socialness > 60) ch = ['talk','compliment','greet','encourage'];
+        else ch = ['greet','talk'];
+        this.game.interactionSystem.execute(pick(ch), actor, target);
+    }
+
+    _smallWander(agent) {
+        const room = this.game.world.getRoom(agent.currentRoom);
+        if (!room) return;
+        const ir = room.innerRect();
+        const rx = randR(ir.x + AGENT_R, ir.x + ir.w - AGENT_R);
+        const ry = randR(ir.y + AGENT_R, ir.y + ir.h - AGENT_R);
+        agent.moveTo(rx, ry);
+    }
+}
+
+// ================================================================
+//  MODULE: Renderer — Canvas 2D with camera
+// ================================================================
+class Renderer {
+    constructor(canvas, camera) {
+        this.canvas = canvas;
+        this.ctx = canvas.getContext('2d');
+        this.camera = camera;
+        this._resize();
+        window.addEventListener('resize', () => this._resize());
+    }
+    _resize() {
+        const w = this.canvas.parentElement.clientWidth;
+        const h = this.canvas.parentElement.clientHeight;
+        this.canvas.width = w * devicePixelRatio;
+        this.canvas.height = h * devicePixelRatio;
+        this.canvas.style.width = w + 'px';
+        this.canvas.style.height = h + 'px';
+    }
+
+    draw(game, time) {
+        const ctx = this.ctx;
+        const dpr = devicePixelRatio;
+        ctx.setTransform(dpr,0,0,dpr,0,0);
+        const cw = this.canvas.width/dpr, ch = this.canvas.height/dpr;
+        ctx.clearRect(0,0,cw,ch);
+
+        ctx.save();
+        this.camera.applyTransform(ctx);
+
+        // Background grid (infinite feel)
+        this._drawWorldGrid(ctx);
+
+        // Rooms
+        game.world.rooms.forEach(r => this._drawRoom(ctx, r, game));
+
+        // Doors
+        game.world.doors.forEach(d => this._drawDoor(ctx, d));
+
+        // Objects
+        game.objects.forEach(o => this._drawObject(ctx, o, game));
+
+        // Proximity lines
+        for (let i=0; i<game.agents.length; i++) {
+            for (let j=i+1; j<game.agents.length; j++) {
+                const a=game.agents[i], b=game.agents[j];
+                if (dist(a,b)<PROXIMITY) {
+                    ctx.save(); ctx.strokeStyle='rgba(149,225,211,0.2)';
+                    ctx.lineWidth=1; ctx.setLineDash([3,3]);
+                    ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+                    ctx.restore();
+                }
+            }
+        }
+
+        // Agents
+        game.agents.forEach(a => this._drawAgent(ctx, a, time, game));
+
+        ctx.restore();
+    }
+
+    _drawWorldGrid(ctx) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.015)';
+        ctx.lineWidth = 0.5;
+        const step = GRID;
+        // Draw a large enough grid around camera
+        const cx = this.camera.x, cy = this.camera.y;
+        const range = 1200 / this.camera.zoom;
+        const x0 = snap(cx - range, step), x1 = snap(cx + range, step);
+        const y0 = snap(cy - range, step), y1 = snap(cy + range, step);
+        for (let x = x0; x <= x1; x += step) { ctx.beginPath(); ctx.moveTo(x,y0); ctx.lineTo(x,y1); ctx.stroke(); }
+        for (let y = y0; y <= y1; y += step) { ctx.beginPath(); ctx.moveTo(x0,y); ctx.lineTo(x1,y); ctx.stroke(); }
+    }
+
+    _drawRoom(ctx, room) {
+        // Floor
+        ctx.fillStyle = room.color;
+        ctx.fillRect(room.x, room.y, room.w, room.h);
+
+        // Inner grid
+        ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+        ctx.lineWidth = 0.5;
+        const ir = room.innerRect();
+        for (let x = ir.x; x <= ir.x+ir.w; x += GRID) {
+            ctx.beginPath(); ctx.moveTo(x,ir.y); ctx.lineTo(x,ir.y+ir.h); ctx.stroke();
+        }
+        for (let y = ir.y; y <= ir.y+ir.h; y += GRID) {
+            ctx.beginPath(); ctx.moveTo(ir.x,y); ctx.lineTo(ir.x+ir.w,y); ctx.stroke();
+        }
+
+        // Walls
+        ctx.strokeStyle = '#3a3a5c';
+        ctx.lineWidth = WALL_THICK;
+        ctx.strokeRect(room.x, room.y, room.w, room.h);
+
+        // Room label
+        ctx.fillStyle = 'rgba(255,255,255,0.12)';
+        ctx.font = 'bold 14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(room.label, room.cx, room.cy - 6);
+        ctx.font = '9px sans-serif';
+        ctx.fillStyle = 'rgba(255,255,255,0.06)';
+        ctx.fillText(room.id, room.cx, room.cy + 8);
+    }
+
+    _drawDoor(ctx, door) {
+        const hw = DOOR_WIDTH / 2;
+        ctx.fillStyle = '#2a3a2a';
+        if (door.orientation === 'v') {
+            ctx.fillRect(door.x - WALL_THICK/2 - 1, door.y - hw, WALL_THICK + 2, DOOR_WIDTH);
+        } else {
+            ctx.fillRect(door.x - hw, door.y - WALL_THICK/2 - 1, DOOR_WIDTH, WALL_THICK + 2);
+        }
+        // Door markers
+        ctx.fillStyle = '#5a8a5a';
+        ctx.beginPath();
+        ctx.arc(door.x, door.y, 3, 0, Math.PI*2);
+        ctx.fill();
+    }
+
+    _drawObject(ctx, obj, game) {
+        const def = obj.def;
+        const c = def.color;
+
+        // Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.2)';
+        ctx.fillRect(obj.x+2, obj.y+2, obj.w, obj.h);
+
+        // Body
+        ctx.fillStyle = c;
+        ctx.globalAlpha = obj.isOccupied ? 0.5 : 0.75;
+        ctx.fillRect(obj.x, obj.y, obj.w, obj.h);
+        ctx.globalAlpha = 1;
+
+        // Border
+        ctx.strokeStyle = obj.isOccupied ? '#e94560' : c;
+        ctx.lineWidth = 1.2;
+        ctx.strokeRect(obj.x, obj.y, obj.w, obj.h);
+
+        // Icon
+        ctx.font = '18px serif';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#fff';
+        ctx.fillText(def.icon, obj.x+obj.w/2, obj.y+obj.h/2+6);
+
+        // Label
+        ctx.font = '8px sans-serif';
+        ctx.fillStyle = '#aaa';
+        ctx.fillText(obj.id, obj.x+obj.w/2, obj.y-4);
+
+        // Occupied badge
+        if (obj.isOccupied) {
+            ctx.fillStyle = '#e94560';
+            ctx.font = '7px sans-serif';
+            ctx.fillText('IN USE', obj.x+obj.w/2, obj.y+obj.h+10);
+        }
+    }
+
+    _drawAgent(ctx, agent, time, game) {
+        const x=agent.x, y=agent.y;
+        const bob = agent.isMoving ? Math.sin(time*12)*1.5 : 0;
+
+        // Selection ring
+        if (game.selectedAgent === agent) {
+            ctx.strokeStyle = '#e94560'; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.arc(x, y, AGENT_R+4, 0, Math.PI*2); ctx.stroke();
+        }
+        // Busy pulse
+        if (agent.busy) {
+            const p = 0.3+0.3*Math.sin(time*6);
+            ctx.strokeStyle = `rgba(83,216,251,${p})`; ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.arc(x, y, AGENT_R+7, 0, Math.PI*2); ctx.stroke();
+        }
+
+        // Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        ctx.beginPath(); ctx.arc(x+1.5, y+1.5, AGENT_R, 0, Math.PI*2); ctx.fill();
+
+        // Body
+        ctx.fillStyle = agent.color;
+        ctx.beginPath(); ctx.arc(x, y+bob, AGENT_R, 0, Math.PI*2); ctx.fill();
+
+        // Direction
+        const dx = x + Math.cos(agent.facing)*(AGENT_R+3);
+        const dy = y + bob + Math.sin(agent.facing)*(AGENT_R+3);
+        ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.arc(dx, dy, 2.5, 0, Math.PI*2); ctx.fill();
+
+        // Label
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 9px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(agent.label, x, y-AGENT_R-9);
+
+        // Action
+        if (agent.currentAction) {
+            ctx.fillStyle = '#53d8fb';
+            ctx.font = '8px sans-serif';
+            ctx.fillText(agent.currentAction, x, y-AGENT_R-1);
+        }
+
+        // Mood
+        const moods = {happy:'\u{1F60A}',fine:'\u{1F610}',sad:'\u{1F622}',miserable:'\u{1F62D}'};
+        ctx.font = '10px serif';
+        ctx.fillText(moods[agent.state.moodLabel]||'', x+AGENT_R+5, y+3);
+    }
+}
+
+// ================================================================
+//  MODULE: UIController
+// ================================================================
+class UIController {
+    constructor(game) {
+        this.game = game;
+        this.placementMode = null;     // object type or null
+        this.roomPlaceMode = null;     // room type or null
+        this.doorMode = false;
+        this.interactA = null;
+        this.interactB = null;
+        this._bind();
+    }
+
+    _bind() {
+        // Room placement
+        document.querySelectorAll('.btn-room').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const type = btn.dataset.room;
+                this._clearModes();
+                this.roomPlaceMode = type;
+                btn.classList.add('active');
+                document.getElementById('hint').textContent = 'Click to place room';
+                document.getElementById('hint').style.display = 'block';
+            });
+        });
+
+        // Door mode
+        document.getElementById('btn-add-door').addEventListener('click', () => {
+            this._clearModes();
+            this.doorMode = true;
+            document.getElementById('btn-add-door').classList.add('active');
+            document.getElementById('hint').textContent = 'Click on a shared wall between two rooms';
+            document.getElementById('hint').style.display = 'block';
+        });
+
+        // Object placement
+        document.querySelectorAll('.btn-place').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const type = btn.dataset.place;
+                this._clearModes();
+                this.placementMode = type;
+                btn.classList.add('active');
+                document.getElementById('hint').textContent = `Click inside a room to place ${type}`;
+                document.getElementById('hint').style.display = 'block';
+            });
+        });
+
+        // Add agent
+        document.getElementById('btn-add-agent').addEventListener('click', () => {
+            this.game.addAgent();
+            this.refreshChips();
+        });
+
+        // Export
+        document.getElementById('btn-export').addEventListener('click', () => {
+            const json = this.game.logSystem.export();
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `sim_log_${Date.now()}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            this.game.log('Logs exported!', 'act');
+        });
+
+        // Canvas clicks
+        const canvas = document.getElementById('c');
+        canvas.addEventListener('click', e => {
+            if (this.game.camera.isDragging) return;
+            const rect = canvas.getBoundingClientRect();
+            const wp = this.game.camera.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+
+            // Room placement
+            if (this.roomPlaceMode) {
+                const sx = snap(wp.x, GRID);
+                const sy = snap(wp.y, GRID);
+                this.game.addRoom(this.roomPlaceMode, sx, sy);
+                this._clearModes();
+                return;
+            }
+
+            // Door mode
+            if (this.doorMode) {
+                this._tryPlaceDoor(wp.x, wp.y);
+                this._clearModes();
+                return;
+            }
+
+            // Object placement
+            if (this.placementMode) {
+                const room = this.game.world.roomAt(wp.x, wp.y);
+                if (!room) { this.game.log('Click inside a room!', 'warn'); return; }
+                const sx = snap(wp.x, GRID) - OBJ_W/2;
+                const sy = snap(wp.y, GRID) - OBJ_H/2;
+                this.game.placeObject(this.placementMode, sx, sy, room.id);
+                this._clearModes();
+                return;
+            }
+
+            // Agent selection
+            for (const agent of this.game.agents) {
+                if (dist(wp, agent) < AGENT_R + 5) {
+                    this.game.selectedAgent = agent;
+                    document.getElementById('hud').textContent = `Selected: ${agent.label}`;
+                    this.refreshChips();
+                    return;
+                }
+            }
+        });
+
+        // Build action buttons
+        this._buildActions();
+        this._buildInteractions();
+    }
+
+    _clearModes() {
+        this.placementMode = null;
+        this.roomPlaceMode = null;
+        this.doorMode = false;
+        document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
+        document.getElementById('hint').style.display = 'none';
+    }
+
+    _tryPlaceDoor(wx, wy) {
+        // Find two rooms that share a wall near click point
+        const world = this.game.world;
+        for (let i = 0; i < world.rooms.length; i++) {
+            for (let j = i+1; j < world.rooms.length; j++) {
+                const rA = world.rooms[i], rB = world.rooms[j];
+                const wall = world.findSharedWall(rA, rB);
+                if (wall && Math.hypot(wall.x - wx, wall.y - wy) < 60) {
+                    // Check no door already exists
+                    const exists = world.doors.some(d =>
+                        (d.roomA===rA.id && d.roomB===rB.id) || (d.roomA===rB.id && d.roomB===rA.id));
+                    if (exists) { this.game.log('Door already exists here', 'warn'); return; }
+                    world.addDoor(rA.id, rB.id, wall.x, wall.y, wall.orientation);
+                    this.game.log(`Door added: ${rA.label} ↔ ${rB.label}`, 'act');
+                    this.game.logSystem.record(null, 'door_added', null, { rooms: [rA.id, rB.id] });
+                    return;
+                }
+            }
+        }
+        this.game.log('No shared wall found near click', 'warn');
+    }
+
+    _buildActions() {
+        const wrap = document.getElementById('action-btns');
+        const actions = ['go_to_kitchen','go_to_bed','go_to_bathroom','eat','sleep','use_toilet',
+                         'watch_tv','play_games','relax','idle','wander'];
+        actions.forEach(name => {
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-action';
+            btn.textContent = name.replace(/_/g,' ');
+            btn.addEventListener('click', () => {
+                const a = this.game.selectedAgent;
+                if (!a) { this.game.log('Select an agent','warn'); return; }
+                a.executeAction(name);
+            });
+            wrap.appendChild(btn);
+        });
+    }
+
+    _buildInteractions() {
+        const wrap = document.getElementById('int-btns');
+        this.game.interactionSystem.getAvailableInteractions().forEach(name => {
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-interact';
+            btn.textContent = name.replace(/_/g,' ');
+            btn.addEventListener('click', () => {
+                if (!this.interactA||!this.interactB) { this.game.log('Select A and B','warn'); return; }
+                if (this.interactA===this.interactB) { this.game.log('Cannot self-interact','warn'); return; }
+                this.game.interactionSystem.execute(name, this.interactA, this.interactB);
+            });
+            wrap.appendChild(btn);
+        });
+    }
+
+    refreshChips() {
+        this._chips('agent-chips-left', a=>{this.game.selectedAgent=a; document.getElementById('hud').textContent=`Selected: ${a.label}`; this.refreshChips();}, this.game.selectedAgent);
+        this._chips('ia-chips', a=>{this.interactA=a; this.refreshChips();}, this.interactA);
+        this._chips('ib-chips', a=>{this.interactB=a; this.refreshChips();}, this.interactB);
+    }
+
+    _chips(id, onClick, sel) {
+        const w = document.getElementById(id); w.innerHTML='';
+        this.game.agents.forEach(a => {
+            const c = document.createElement('span');
+            c.className = 'chip'+(a===sel?' sel':'');
+            c.innerHTML = `<span class="dot" style="background:${a.color}"></span>${a.label}`;
+            c.addEventListener('click', ()=>onClick(a));
+            w.appendChild(c);
+        });
+    }
+
+    updateStateDisplay() {
+        const agent = this.game.selectedAgent;
+        const el = document.getElementById('state-display');
+        if (!agent) { el.innerHTML='<span style="color:#444">No agent selected</span>'; return; }
+
+        const s=agent.state.toJSON(), p=agent.personality.toJSON();
+        const bc=(k,v)=>{ let x=(k==='hunger'||k==='boredom')?100-v:v; return x>60?'#95e1d3':x>30?'#f4a261':'#e94560'; };
+        const room = this.game.world.getRoom(agent.currentRoom);
+
+        let h = `<b style="color:${agent.color}">${agent.label}</b>`;
+        if (agent.currentAction) h += ` <span style="color:#53d8fb;font-size:8px">${agent.currentAction}</span>`;
+        h += `<span style="float:right;font-size:8px">${s.moodLabel}</span>`;
+        if (room) h += `<div style="font-size:8px;color:#555;margin:2px 0">Room: ${room.label}</div>`;
+
+        ['energy','hunger','hygiene','comfort','boredom','mood'].forEach(k => {
+            h += `<div class="sr"><span class="sl">${k}</span><div class="bbg"><div class="bf" style="width:${s[k]}%;background:${bc(k,s[k])}"></div></div><span class="sv">${s[k]}</span></div>`;
+        });
+
+        h += `<div style="margin-top:3px;font-size:8px;color:#444">Personality</div>`;
+        for(const[k,v]of Object.entries(p)) {
+            h += `<div class="sr"><span class="sl">${k}</span><div class="bbg"><div class="bf" style="width:${v}%;background:#444"></div></div><span class="sv">${v}</span></div>`;
+        }
+        el.innerHTML = h;
+
+        // Target state
+        const tEl = document.getElementById('tgt-state');
+        const t = this.interactB;
+        if (!t) { tEl.innerHTML='&mdash;'; }
+        else {
+            const ts = t.state.toJSON();
+            let th = `<b style="color:${t.color}">${t.label}</b> <span style="font-size:8px">${ts.moodLabel}</span>`;
+            ['energy','hunger','hygiene','comfort','boredom','mood'].forEach(k => {
+                th += `<div class="sr"><span class="sl">${k}</span><div class="bbg"><div class="bf" style="width:${ts[k]}%;background:${bc(k,ts[k])}"></div></div><span class="sv">${ts[k]}</span></div>`;
+            });
+            tEl.innerHTML = th;
+        }
+
+        // Relationship
+        const rEl = document.getElementById('rel-display');
+        if (!this.interactA||!this.interactB||this.interactA===this.interactB) {
+            rEl.textContent='Select two different agents';
+        } else {
+            const r = this.game.relationships;
+            rEl.innerHTML=`${this.interactA.label} → ${this.interactB.label}: <b>${Math.round(r.get(this.interactA.id,this.interactB.id))}</b>/100<br>${this.interactB.label} → ${this.interactA.label}: <b>${Math.round(r.get(this.interactB.id,this.interactA.id))}</b>/100`;
+        }
+
+        // Zoom display
+        document.getElementById('zoom-display').textContent = `${Math.round(this.game.camera.zoom*100)}%`;
+    }
+}
+
+// ================================================================
+//  MODULE: Game — orchestrator
+// ================================================================
+class Game {
+    constructor() {
+        this.world     = new WorldManager();
+        this.objects   = [];
+        this.agents    = [];
+        this.selectedAgent = null;
+        this.relationships = new RelationshipMap();
+        this.logSystem = new LogSystem();
+        this.camera    = null;
+        this.renderer  = null;
+        this.actionSystem = null;
+        this.interactionSystem = null;
+        this.autonomy  = null;
+        this.ui        = null;
+        this._lastTime = 0;
+    }
+
+    init() {
+        const canvas = document.getElementById('c');
+        this.camera   = new CameraSystem(canvas);
+        this.renderer = new Renderer(canvas, this.camera);
+        this.actionSystem = new ActionSystem(this);
+        this.interactionSystem = new InteractionSystem(this);
+        this.autonomy = new AutonomySystem(this);
+        this._registerActions();
+        this._buildDefaultHouse();
+
+        // Start with 2 agents in the living room
+        const lr = this.world.rooms[0];
+        this.addAgent(lr.cx - 30, lr.cy, lr.id);
+        this.addAgent(lr.cx + 30, lr.cy, lr.id);
+        this.selectedAgent = this.agents[0];
+
+        // Center camera on house
+        this.camera.targetX = lr.cx;
+        this.camera.targetY = lr.cy;
+        this.camera.x = lr.cx;
+        this.camera.y = lr.cy;
+
+        this.ui = new UIController(this);
+        this.ui.refreshChips();
+
+        this.log('Engine v2 ready. Create rooms, place objects, add agents.', 'act');
+        this.logSystem.record(null, 'engine_start', null);
+        requestAnimationFrame(t => this._loop(t));
+    }
+
+    _buildDefaultHouse() {
+        // 4-room starter house
+        const lr = this.world.addRoom('living_room', 100, 100, 360, 280);
+        const kr = this.world.addRoom('kitchen_room', 460, 100, 280, 280);
+        const br = this.world.addRoom('bedroom', 100, 380, 360, 240);
+        const ba = this.world.addRoom('bathroom_room', 460, 380, 280, 240);
+        this.world.autoCreateDoors();
+    }
+
+    addRoom(type, x, y) {
+        const r = this.world.addRoom(type, x, y);
+        this.world.autoCreateDoors();
+        this.log(`Created ${r.label}`, 'act');
+        this.logSystem.record(null, 'room_created', r.id, { type: r.type });
+        return r;
+    }
+
+    addAgent(x, y, roomId) {
+        if (!roomId) {
+            const room = this.world.roomAt(x || 0, y || 0) || this.world.rooms[0];
+            if (!room) { this.log('No rooms exist!', 'warn'); return; }
+            roomId = room.id;
+            if (!x) { x = room.cx + randR(-40,40); y = room.cy + randR(-40,40); }
+        }
+        const a = new Agent(x, y, roomId);
+        this.agents.push(a);
+        this.log(`${a.label} joined`, 'act');
+        this.logSystem.record(a, 'agent_created', null, { room: roomId });
+        if (this.ui) this.ui.refreshChips();
+        return a;
+    }
+
+    placeObject(type, x, y, roomId) {
+        const obj = new WorldObject(type, x, y, roomId);
+        this.objects.push(obj);
+        this.log(`Placed ${obj.id}`, 'act');
+        this.logSystem.record(null, 'object_placed', obj.id, { type, room: roomId });
+        return obj;
+    }
+
+    findObject(type) { return this.objects.find(o => o.type===type) || null; }
+    findUnoccupiedObject(type) { return this.objects.find(o => o.type===type && !o.isOccupied) || null; }
+    findObjectById(id) { return this.objects.find(o => o.id===id) || null; }
+
+    log(msg, cls='') {
+        const el = document.getElementById('log');
+        const t = new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+        const d = document.createElement('div');
+        d.className = 'l ' + cls;
+        d.textContent = `[${t}] ${msg}`;
+        el.appendChild(d);
+        if (el.children.length>300) el.removeChild(el.firstChild);
+        el.scrollTop = el.scrollHeight;
+    }
+
+    _registerActions() {
+        const wait = ms => new Promise(r=>setTimeout(r,ms));
+
+        const goToObj = async (agent, game, type) => {
+            const obj = game.findObject(type);
+            if (!obj) { game.log(`No ${type} placed!`,'warn'); return null; }
+            const pt = obj.interactionPoint;
+            await agent.navigateTo(pt.x, pt.y);
+            return obj;
+        };
+
+        const useObject = async (agent, game, type, duration, stateChanges, msg) => {
+            const obj = game.findUnoccupiedObject(type);
+            if (!obj) { game.log(`No available ${type}!`,'warn'); return null; }
+            const pt = obj.interactionPoint;
+            await agent.navigateTo(pt.x, pt.y);
+            obj.occupiedBy = agent.id;
+            game.log(`${agent.label} using ${obj.id}...`,'act');
+            game.logSystem.record(agent, 'use_object', obj.id, { type });
+            await wait(duration);
+            agent.state.modify(stateChanges);
+            obj.occupiedBy = null;
+            game.log(`${agent.label} ${msg}`,'act');
+            return obj;
+        };
+
+        this.actionSystem.register('go_to_kitchen',  { description:'Walk to kitchen', target:'kitchen',  fn: async(a,g)=>{ await goToObj(a,g,'kitchen'); }});
+        this.actionSystem.register('go_to_bed',      { description:'Walk to bed',     target:'bed',      fn: async(a,g)=>{ await goToObj(a,g,'bed'); }});
+        this.actionSystem.register('go_to_bathroom',  { description:'Walk to bathroom',target:'bathroom', fn: async(a,g)=>{ await goToObj(a,g,'bathroom'); }});
+
+        this.actionSystem.register('eat', {
+            description:'Eat at kitchen', target:'kitchen',
+            fn: async(a,g)=>{ await useObject(a,g,'kitchen',2000,{hunger:-30,energy:5,comfort:3},'finished eating'); }
+        });
+        this.actionSystem.register('sleep', {
+            description:'Sleep in bed', target:'bed',
+            fn: async(a,g)=>{ await useObject(a,g,'bed',3000,{energy:40,comfort:10,hunger:5,boredom:5},'woke up rested'); }
+        });
+        this.actionSystem.register('use_toilet', {
+            description:'Use bathroom', target:'bathroom',
+            fn: async(a,g)=>{ await useObject(a,g,'bathroom',1500,{hygiene:35,comfort:5},'feels clean'); }
+        });
+
+        // Entertainment actions
+        this.actionSystem.register('watch_tv', {
+            description:'Watch TV', target:'tv',
+            fn: async(a,g)=>{ await useObject(a,g,'tv',2500,{boredom:-35,energy:-3,comfort:5},'done watching TV'); }
+        });
+        this.actionSystem.register('play_games', {
+            description:'Play games', target:'console',
+            fn: async(a,g)=>{ await useObject(a,g,'console',3000,{boredom:-40,energy:-5,comfort:4},'done playing'); }
+        });
+        this.actionSystem.register('relax', {
+            description:'Relax on sofa', target:'sofa',
+            fn: async(a,g)=>{ await useObject(a,g,'sofa',2000,{boredom:-15,energy:10,comfort:12},'feels relaxed'); }
+        });
+
+        this.actionSystem.register('idle', {
+            description:'Stand still', target:null,
+            fn: async(a,g)=>{ g.log(`${a.label} idling...`); await wait(1200); }
+        });
+        this.actionSystem.register('wander', {
+            description:'Random walk', target:null,
+            fn: async(a,g)=>{
+                const room = g.world.getRoom(a.currentRoom);
+                if (!room) return;
+                const ir = room.innerRect();
+                const rx = randR(ir.x+AGENT_R, ir.x+ir.w-AGENT_R);
+                const ry = randR(ir.y+AGENT_R, ir.y+ir.h-AGENT_R);
+                await a.moveTo(rx, ry);
+            }
+        });
+    }
+
+    _loop(time) {
+        requestAnimationFrame(t => this._loop(t));
+        const dt = Math.min((time - this._lastTime)/1000, 0.1);
+        this._lastTime = time;
+        const now = performance.now();
+
+        this.camera.update(dt);
+
+        for (const a of this.agents) {
+            a.updateMovement(dt);
+            a.state.tick(dt);
+            this.autonomy.update(a, now);
+        }
+
+        // Proximity comfort
+        for (let i=0; i<this.agents.length; i++) {
+            for (let j=i+1; j<this.agents.length; j++) {
+                const a=this.agents[i], b=this.agents[j];
+                if (dist(a,b)<PROXIMITY) {
+                    const boost = 0.2*dt;
+                    a.state.modify({comfort: boost*(a.personality.socialness/50)});
+                    b.state.modify({comfort: boost*(b.personality.socialness/50)});
+                }
+            }
+        }
+
+        this.renderer.draw(this, time/1000);
+        this.ui.updateStateDisplay();
+    }
+}
+
+// ================================================================
+//  BOOTSTRAP
+// ================================================================
+const game = new Game();
+game.init();
+
+// ── Global API ──
+window.game = game;
+window.simAPI = {
+    executeAction:   (agentId,name) => { const a=game.agents.find(x=>x.id===agentId); return a?a.executeAction(name):Promise.resolve(false); },
+    interact:        (aId,bId,name) => { const a=game.agents.find(x=>x.id===aId),b=game.agents.find(x=>x.id===bId); return(a&&b)?game.interactionSystem.execute(name,a,b):Promise.resolve(false); },
+    getAgents:       () => game.agents.map(a=>({id:a.id,label:a.label,x:Math.round(a.x),y:Math.round(a.y),room:a.currentRoom,busy:a.busy,state:a.state.toJSON(),personality:a.personality.toJSON()})),
+    getObjects:      () => game.objects.map(o=>({id:o.id,type:o.type,x:o.x,y:o.y,room:o.roomId,occupied:o.isOccupied,occupiedBy:o.occupiedBy})),
+    getRooms:        () => game.world.rooms.map(r=>({id:r.id,type:r.type,label:r.label,x:r.x,y:r.y,w:r.w,h:r.h})),
+    getDoors:        () => game.world.doors.map(d=>({id:d.id,roomA:d.roomA,roomB:d.roomB,x:d.x,y:d.y})),
+    getActions:      () => game.actionSystem.getAvailableActions(),
+    getInteractions: () => game.interactionSystem.getAvailableInteractions(),
+    getRelationship: (a,b) => game.relationships.get(a,b),
+    addAgent:        () => { const a=game.addAgent(); return a?.id; },
+    addRoom:         (type,x,y) => { const r=game.addRoom(type,x,y); return r.id; },
+    placeObject:     (type,x,y,roomId) => { const o=game.placeObject(type,x,y,roomId); return o.id; },
+    setAutonomy:     (id,on) => { const a=game.agents.find(x=>x.id===id); if(a)a._isAutonomous=on; },
+    exportLogs:      () => game.logSystem.export(),
+    getLogs:         () => game.logSystem.events,
+};
+</script>
+</body>
+</html>
