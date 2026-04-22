@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Life Simulation Engine v2 — 3D</title>
+<title>Life Simulation Engine v3 — Intelligent Animation System</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#0a0a14;color:#ccc;display:flex;height:100vh;overflow:hidden;font-size:12px}
@@ -35,17 +35,34 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0a0a14;color:#ccc;d
 .lbl{position:absolute;transform:translate(-50%,-100%);background:rgba(14,14,28,0.75);padding:2px 6px;border-radius:3px;font-size:9px;color:#fff;white-space:nowrap;border:1px solid rgba(255,255,255,0.1);text-align:center}
 .lbl .act{display:block;color:#53d8fb;font-size:8px}
 .lbl .mood{margin-left:3px}
+.lbl .anim-state{display:block;color:#f4a261;font-size:7px;opacity:0.7}
 
 #hud{position:absolute;top:8px;left:8px;background:rgba(14,14,28,.88);padding:5px 10px;border-radius:4px;font-size:10px;border:1px solid #1e1e35;pointer-events:none;z-index:5}
 #hint{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);background:rgba(233,69,96,.85);padding:5px 16px;border-radius:4px;font-size:11px;display:none;pointer-events:none;z-index:5}
 #zoom-display{position:absolute;top:8px;right:8px;background:rgba(14,14,28,.88);padding:5px 10px;border-radius:4px;font-size:10px;border:1px solid #1e1e35;pointer-events:none;z-index:5}
-#loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(6,6,16,0.9);color:#e94560;font-size:14px;font-weight:600;z-index:20}
+#cam-modes{position:absolute;top:8px;left:50%;transform:translateX(-50%);display:flex;gap:4px;background:rgba(14,14,28,.88);padding:4px;border-radius:6px;border:1px solid #1e1e35;z-index:6}
+.cam-btn{padding:5px 12px;background:#14142a;color:#bbb;border:1px solid transparent;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600;transition:all .12s}
+.cam-btn:hover{background:#1e1e3a;color:#eee}
+.cam-btn.active{background:#e94560;color:#fff;border-color:#e94560}
+#loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(6,6,16,0.9);z-index:20;flex-direction:column;gap:12px}
+#loading .load-title{color:#e94560;font-size:16px;font-weight:700;letter-spacing:1px}
+#loading .load-sub{color:#666;font-size:11px}
+#loading .load-bar{width:200px;height:4px;background:#1a1a2e;border-radius:2px;overflow:hidden}
+#loading .load-fill{height:100%;background:linear-gradient(90deg,#e94560,#53d8fb);border-radius:2px;transition:width .3s;width:0%}
 
 #lw{flex:1;min-height:0;display:flex;flex-direction:column}
 #log{flex:1;overflow-y:auto;font-size:8px;background:#08080f;border:1px solid #1e1e35;border-radius:3px;padding:4px;line-height:1.5}
-#log .l{color:#444}#log .l.act{color:#53d8fb}#log .l.warn{color:#f4a261}#log .l.int{color:#95e1d3}
+#log .l{color:#444}#log .l.act{color:#53d8fb}#log .l.warn{color:#f4a261}#log .l.int{color:#95e1d3}#log .l.anim{color:#9b59b6}
 
 .row{display:flex;gap:4px;flex-wrap:wrap}
+
+/* Animation debug panel styling */
+.anim-debug{font-size:8px;color:#555;margin-top:4px;padding:4px;background:#0a0a12;border:1px solid #1e1e35;border-radius:3px;max-height:120px;overflow-y:auto}
+.anim-debug::-webkit-scrollbar{width:2px}.anim-debug::-webkit-scrollbar-thumb{background:#333}
+.anim-group{margin-bottom:3px}
+.anim-group-label{color:#e94560;font-size:7px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px}
+.anim-item{color:#444;font-size:7px;padding-left:6px}
+.anim-item.active{color:#53d8fb;font-weight:700}
 </style>
 
 <script type="importmap">
@@ -81,7 +98,10 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0a0a14;color:#ccc;d
     </div>
 
     <div class="sec">Agents</div>
-    <button class="btn btn-add" id="btn-add-agent">+ Add Agent</button>
+    <div class="row">
+        <button class="btn btn-add" id="btn-add-agent-m">+ Male Agent</button>
+        <button class="btn btn-add" id="btn-add-agent-f">+ Female Agent</button>
+    </div>
     <div id="agent-chips-left"></div>
 
     <div class="sec">Manual Actions</div>
@@ -89,6 +109,9 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0a0a14;color:#ccc;d
 
     <div class="sec">Selected Agent</div>
     <div id="state-display" class="sb" style="color:#555">No agent selected</div>
+
+    <div class="sec">Animation State</div>
+    <div id="anim-display" class="anim-debug">No agent selected</div>
 
     <div class="sec">Export</div>
     <button class="btn btn-export" id="btn-export">&#x1F4E5; Export Logs (JSON)</button>
@@ -101,10 +124,19 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0a0a14;color:#ccc;d
 
 <div id="vp">
     <div id="hud">Scroll=zoom · Right-drag=pan · Left-drag=orbit · Click=select/place</div>
+    <div id="cam-modes">
+        <button class="cam-btn active" data-cam="orbit" title="Free orbit camera">Orbit</button>
+        <button class="cam-btn" data-cam="follow" title="Third-person follow (select an agent first)">3rd-Person</button>
+        <button class="cam-btn" data-cam="fps" title="First-person view from agent's eyes (click to lock pointer)">FPS</button>
+    </div>
     <div id="hint">Click to place</div>
     <div id="zoom-display">100%</div>
     <div id="labels"></div>
-    <div id="loading">Loading character model...</div>
+    <div id="loading">
+        <div class="load-title">⚙ Loading Animation Engine</div>
+        <div class="load-sub">Scanning character models & animations...</div>
+        <div class="load-bar"><div class="load-fill" id="load-fill"></div></div>
+    </div>
 </div>
 
 <div class="panel panel-right">
@@ -126,7 +158,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import * as SkeletonUtils  from 'three/addons/utils/SkeletonUtils.js';
 
 // ================================================================
-//  CONSTANTS — identical to engine.html (2D pixel units for logic)
+//  CONSTANTS
 // ================================================================
 const GRID        = 40;
 const OBJ_W       = 50;
@@ -140,11 +172,42 @@ const AUTO_MIN    = 4000;
 const AUTO_MAX    = 6000;
 const WANDER_IDLE = 5000;
 
-// 3D scale: 1 GRID (40 px) → 1 world unit. Camera & model sized for this.
 const WORLD_SCALE   = 1 / GRID;
-const TARGET_HEIGHT = 0.9;  // desired world-space height of the GLB character
-const WALL_HEIGHT   = 0.9;  // wall height in world units
-const MODEL_PATH    = 'source/model.glb';
+const TARGET_HEIGHT = 1.7;   // real-world unit height (~human meters in scene)
+const WALL_HEIGHT   = 2.4;
+
+// Per-model scale overrides (use null = auto-compute from skinned-mesh bounds).
+// If auto-scale is still wrong (e.g. female reads "small" because rest pose
+// excludes hair/limbs from the bbox), set an explicit override here.
+const MODEL_SCALE_OVERRIDE = { male: null, female: null };
+
+// Behavior toggles
+const ALLOW_RUN = false;     // NPCs walk only inside the house
+
+// Animations to ignore (substring match, case-insensitive). Filtered BEFORE
+// classification so they're never picked. User can extend this list.
+const ANIM_BLACKLIST = [
+    'zombie',
+    'death', 'die', 'dead',
+    'punch', 'kick', 'sword', 'shield', 'fighting', 'hook', 'overhand',
+    'pistol', 'spell', 'blast', 'shoot', 'aim', 'reload',
+    'crawl', 'swim', 'driving', 'levitate', 'flying',
+    'tpose', 't-pose', 't pose', 'rest pose',
+];
+
+// Model paths — male and female
+const MALE_MODEL_PATH   = 'source/male model.glb';
+const FEMALE_MODEL_PATH = 'source/female model.glb';
+
+// Furniture GLB sources. Map of object type → { path, fitHeight (world units) }.
+// `fitHeight` is the desired final height in scene; the loader auto-scales.
+const FURNITURE_GLBS = {
+    chair:    { path: 'source/chair.glb',  fitHeight: 0.9 },
+    table:    { path: 'source/table.glb',  fitHeight: 0.75 },
+    tv:       { path: 'source/tv.glb',     fitHeight: 0.7  },
+    bathroom: { path: 'source/shower.glb', fitHeight: 2.0  },
+    sofa:     { path: 'source/chair.glb',  fitHeight: 0.85 }, // reuse chair until a sofa GLB exists
+};
 
 const ROOM_DEFAULTS = {
     living_room:   { w: 360, h: 280, color: 0x2a2a4a, label: 'Living Room' },
@@ -176,9 +239,528 @@ const randI  = (lo,hi) => Math.floor(randR(lo,hi+1));
 const pick   = a => a[Math.floor(Math.random()*a.length)];
 const snap   = (v,g) => Math.round(v/g)*g;
 const rectContains = (r,px,py) => px>=r.x && px<=r.x+r.w && py>=r.y && py<=r.y+r.h;
-
-// Convert 2D simulation coords (px, py) into 3D world position (Vector3).
 const toWorld = (x, y, h=0) => new THREE.Vector3(x * WORLD_SCALE, h, y * WORLD_SCALE);
+
+// ================================================================
+//  🧠 ANIMATION INTELLIGENCE ENGINE
+//  Dynamically classifies GLB animations by name keywords
+// ================================================================
+
+/**
+ * AnimationCategory — defines keyword patterns for each logical group.
+ * Order matters: first match wins for classification.
+ */
+const ANIM_CATEGORIES = {
+    // === DEATH / DISABLED ===
+    death: {
+        keywords: ['death', 'die', 'dead'],
+        loop: false,
+        priority: 100,
+    },
+    // === SLEEP ===
+    sleep: {
+        keywords: ['sleep', 'sleeping', 'layto'],
+        loop: true,
+        priority: 90,
+    },
+    // === COMBAT ===
+    combat_attack: {
+        keywords: ['punch', 'melee', 'sword attack', 'sword regular', 'sword combo', 'sword dash',
+                   'kick', 'fighting left', 'fighting right', 'hook', 'overhand'],
+        loop: false,
+        priority: 80,
+    },
+    combat_defend: {
+        keywords: ['defend', 'shield', 'sword block', 'block'],
+        loop: false,
+        priority: 79,
+    },
+    combat_idle: {
+        keywords: ['fighting idle', 'sword idle'],
+        loop: true,
+        priority: 78,
+    },
+    // === RANGED / SPELLS ===
+    ranged: {
+        keywords: ['pistol shoot', 'pistol aim', 'pistol reload', 'spell simple shoot',
+                   'two-hand blast', 'throw object', 'overhardthrow'],
+        loop: false,
+        priority: 77,
+    },
+    // === SPRINT ===
+    sprint: {
+        keywords: ['sprint'],
+        loop: true,
+        priority: 70,
+    },
+    // === RUN ===
+    run: {
+        keywords: ['run'],
+        loop: true,
+        priority: 65,
+    },
+    // === WALK ===
+    walk: {
+        keywords: ['walk loop', 'walk carry', 'walk formal', 'jog'],
+        loop: true,
+        priority: 60,
+    },
+    // === ZOMBIE WALK ===
+    zombie_walk: {
+        keywords: ['zombie walk'],
+        loop: true,
+        priority: 59,
+    },
+    // === CRAWL ===
+    crawl: {
+        keywords: ['crawl'],
+        loop: true,
+        priority: 55,
+    },
+    // === JUMP ===
+    jump: {
+        keywords: ['jump', 'ninja'],
+        loop: false,
+        priority: 50,
+    },
+    // === SWIM ===
+    swim: {
+        keywords: ['swim'],
+        loop: true,
+        priority: 49,
+    },
+    // === FLY ===
+    fly: {
+        keywords: ['flying', 'levitate'],
+        loop: true,
+        priority: 48,
+    },
+    // === DRIVE ===
+    drive: {
+        keywords: ['driving'],
+        loop: true,
+        priority: 47,
+    },
+    // === EMOTE ===
+    emote: {
+        keywords: ['dance', 'bow', 'victory', 'yes', 'angry', 'backflip', 'confused',
+                   'dizzy', 'head nod', 'greeting', 'reject', 'jumping jacks',
+                   'power up', 'tired', 'shivering'],
+        loop: false,
+        priority: 40,
+    },
+    // === INTERACT ===
+    interact: {
+        keywords: ['consume', 'pickup', 'push', 'interact', 'farm', 'fixing', 'kneeling',
+                   'treechopping', 'tree chopping', 'meditate', 'pushup', 'roll'],
+        loop: false,
+        priority: 35,
+    },
+    // === SITTING ===
+    sit: {
+        keywords: ['sitting', 'sit'],
+        loop: true,
+        priority: 30,
+    },
+    // === SLIDE ===
+    slide: {
+        keywords: ['slide'],
+        loop: false,
+        priority: 29,
+    },
+    // === CROUCH ===
+    crouch: {
+        keywords: ['crouch'],
+        loop: true,
+        priority: 28,
+    },
+    // === PISTOL IDLE ===
+    pistol_idle: {
+        keywords: ['pistol idle'],
+        loop: true,
+        priority: 27,
+    },
+    // === SPELL IDLE ===
+    spell_idle: {
+        keywords: ['spell simple idle', 'spell simple enter', 'spell simple exit'],
+        loop: true,
+        priority: 26,
+    },
+    // === CONSUME (eating/drinking) ===
+    consume: {
+        keywords: ['consume'],
+        loop: false,
+        priority: 25,
+    },
+    // === HIT / HURT ===
+    hit: {
+        keywords: ['hit'],
+        loop: false,
+        priority: 24,
+    },
+    // === IDLE (catch-all — must be last) ===
+    idle: {
+        keywords: ['idle', 'rest pose', 'tpose', 'listening'],
+        loop: true,
+        priority: 10,
+    },
+};
+
+/**
+ * AnimationIntelligence — the core AI-like engine that:
+ * 1) Scans all AnimationClips from a GLTF
+ * 2) Classifies them into logical groups based on name keywords
+ * 3) Provides state-driven animation selection & crossfading
+ */
+class AnimationIntelligence {
+    /**
+     * @param {THREE.Object3D} model — the cloned model scene
+     * @param {THREE.AnimationClip[]} clips — all animation clips from the GLTF
+     * @param {string} modelLabel — e.g. "male" or "female" for logging
+     */
+    constructor(model, clips, modelLabel = 'model') {
+        this.model = model;
+        this.modelLabel = modelLabel;
+        this.mixer = new THREE.AnimationMixer(model);
+        this.clips = clips;
+
+        // Classified animation map: category → AnimationClip[]
+        this.categories = {};
+        // Quick lookup: clip.name → category
+        this.clipCategoryMap = {};
+        // All AnimationActions keyed by clip name
+        this.actions = {};
+
+        // Current animation state
+        this.currentState = 'idle';
+        this.currentAction = null;
+        this.currentClipName = '';
+        this._queuedState = null;
+        this._oneShotCallback = null;
+        this._isPlayingOneShot = false;
+
+        // Crossfade settings
+        this.fadeDuration = 0.3;
+
+        // Scan & classify
+        this._classifyAll();
+        this._createActions();
+
+        // Force-enter idle and SAMPLE the mixer once so the bind / T-pose is
+        // overwritten before the model is rendered the first time.
+        this._enterState('idle');
+        this.mixer.update(0.0001);
+    }
+
+    /**
+     * Scan all clips and classify them into logical groups
+     */
+    _classifyAll() {
+        // Initialize categories
+        for (const cat of Object.keys(ANIM_CATEGORIES)) {
+            this.categories[cat] = [];
+        }
+        this.categories['unclassified'] = [];
+
+        for (const clip of this.clips) {
+            const name = clip.name;
+            const nameLower = name.toLowerCase();
+            let matched = false;
+
+            // Test each category in priority order (sorted)
+            const sortedCats = Object.entries(ANIM_CATEGORIES)
+                .sort((a, b) => b[1].priority - a[1].priority);
+
+            for (const [catName, catDef] of sortedCats) {
+                for (const keyword of catDef.keywords) {
+                    if (nameLower.includes(keyword.toLowerCase())) {
+                        this.categories[catName].push(clip);
+                        this.clipCategoryMap[name] = catName;
+                        matched = true;
+                        break;
+                    }
+                }
+                if (matched) break;
+            }
+
+            if (!matched) {
+                this.categories['unclassified'].push(clip);
+                this.clipCategoryMap[name] = 'unclassified';
+            }
+        }
+    }
+
+    /**
+     * Create THREE.AnimationAction for every clip
+     */
+    _createActions() {
+        for (const clip of this.clips) {
+            const action = this.mixer.clipAction(clip);
+            this.actions[clip.name] = action;
+        }
+    }
+
+    /**
+     * Get a summary of all classified animations (for debugging)
+     */
+    getClassificationSummary() {
+        const summary = {};
+        for (const [cat, clips] of Object.entries(this.categories)) {
+            if (clips.length > 0) {
+                summary[cat] = clips.map(c => c.name);
+            }
+        }
+        return summary;
+    }
+
+    /**
+     * Get all clip names in a given category
+     */
+    getClipsForCategory(category) {
+        return this.categories[category] || [];
+    }
+
+    /**
+     * Pick a random clip from a category.
+     * Returns null if category is empty.
+     */
+    _pickRandom(category) {
+        const clips = this.categories[category];
+        if (!clips || clips.length === 0) return null;
+        return clips[Math.floor(Math.random() * clips.length)];
+    }
+
+    /**
+     * Pick a clip that best matches a substring within a category.
+     * Falls back to random if no match.
+     */
+    _pickBySubstring(category, substr) {
+        const clips = this.categories[category];
+        if (!clips || clips.length === 0) return null;
+        const lower = substr.toLowerCase();
+        const match = clips.find(c => c.name.toLowerCase().includes(lower));
+        return match || clips[Math.floor(Math.random() * clips.length)];
+    }
+
+    /**
+     * Crossfade from current action to a new clip.
+     */
+    _crossfadeTo(clip, loop = true, fadeDuration = null) {
+        if (!clip) return null;
+        const fd = fadeDuration ?? this.fadeDuration;
+        const newAction = this.actions[clip.name];
+        if (!newAction) return null;
+
+        newAction.reset();
+        newAction.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1);
+        newAction.clampWhenFinished = !loop;
+
+        if (this.currentAction && this.currentAction !== newAction) {
+            this.currentAction.fadeOut(fd);
+            newAction.fadeIn(fd);
+        }
+
+        newAction.play();
+        this.currentAction = newAction;
+        this.currentClipName = clip.name;
+        return newAction;
+    }
+
+    /**
+     * Enter a looping state (idle, walk, run, etc.)
+     */
+    _enterState(state) {
+        if (this._isPlayingOneShot) return; // don't interrupt one-shots
+
+        this.currentState = state;
+
+        // Map agent behavioral states to animation categories
+        const stateMap = {
+            'idle':     () => this._pickRandom('idle'),
+            'walk':     () => this._pickBySubstring('walk', 'Walk Loop')
+                            || this._pickBySubstring('walk', 'Walk')
+                            || this._pickRandom('walk'),
+            'run':      () => ALLOW_RUN ? (this._pickRandom('run') || this._pickBySubstring('walk', 'Jog')) : null,
+            'sprint':   () => this._pickRandom('sprint') || this._pickRandom('run'),
+            'sit':      () => this._pickBySubstring('sit', 'Sitting Idle'),
+            'sleep':    () => this._pickRandom('sleep'),
+            'crouch':   () => this._pickRandom('crouch'),
+            'swim':     () => this._pickRandom('swim'),
+            'fly':      () => this._pickRandom('fly'),
+            'drive':    () => this._pickRandom('drive'),
+            'combat_idle': () => this._pickRandom('combat_idle'),
+            'pistol_idle': () => this._pickRandom('pistol_idle'),
+            'zombie':   () => this._pickBySubstring('idle', 'Zombie Idle'),
+        };
+
+        const picker = stateMap[state];
+        let clip = picker ? picker() : null;
+
+        // FALLBACK RULE: if no matching animation exists, fall back
+        if (!clip) {
+            clip = this._pickBySubstring('idle', 'Rest Pose')
+                || this._pickBySubstring('idle', 'Idle Loop')
+                || this._pickRandom('idle')
+                || (this.clips.length > 0 ? this.clips[0] : null);
+        }
+
+        if (clip) {
+            this._crossfadeTo(clip, true);
+        }
+    }
+
+    /**
+     * Play a one-shot animation (attack, emote, interact, etc.)
+     * Returns a Promise that resolves when the animation finishes.
+     */
+    playOneShot(category, specificName = null) {
+        return new Promise((resolve) => {
+            let clip;
+            if (specificName) {
+                // Try to find exact match first
+                clip = this.clips.find(c => c.name === specificName);
+                if (!clip) {
+                    // Try substring match within category
+                    clip = this._pickBySubstring(category, specificName);
+                }
+            } else {
+                clip = this._pickRandom(category);
+            }
+
+            if (!clip) {
+                // No animation found — resolve immediately
+                resolve();
+                return;
+            }
+
+            this._isPlayingOneShot = true;
+            const action = this._crossfadeTo(clip, false, 0.2);
+
+            if (!action) {
+                this._isPlayingOneShot = false;
+                resolve();
+                return;
+            }
+
+            // Listen for animation finish
+            const onFinished = (e) => {
+                if (e.action === action) {
+                    this.mixer.removeEventListener('finished', onFinished);
+                    this._isPlayingOneShot = false;
+                    // Return to previous looping state
+                    this._enterState(this.currentState);
+                    resolve();
+                }
+            };
+            this.mixer.addEventListener('finished', onFinished);
+        });
+    }
+
+    /**
+     * Play a specific animation BY EXACT NAME.
+     * Useful for precise control.
+     */
+    playByName(name, loop = false) {
+        const clip = this.clips.find(c => c.name === name);
+        if (!clip) return null;
+        if (loop) {
+            this._crossfadeTo(clip, true);
+        } else {
+            return this.playOneShot(this.clipCategoryMap[name] || 'unclassified', name);
+        }
+        return Promise.resolve();
+    }
+
+    /**
+     * HIGH-LEVEL: Set the agent's behavioral state.
+     * This is the primary API used by the simulation.
+     */
+    setState(newState) {
+        if (newState === this.currentState && !this._isPlayingOneShot) return;
+        this._enterState(newState);
+    }
+
+    /**
+     * HIGH-LEVEL: Trigger an action animation (one-shot).
+     * Maps action names from the simulation to animation categories.
+     */
+    async triggerAction(actionName) {
+        // Map simulation actions to animation categories + preferred clips
+        const actionMap = {
+            // Combat
+            'punch':        { cat: 'combat_attack', prefer: 'Punch' },
+            'kick':         { cat: 'combat_attack', prefer: 'Kick' },
+            'sword_attack': { cat: 'combat_attack', prefer: 'Sword Attack' },
+            'melee':        { cat: 'combat_attack', prefer: 'Melee Hook' },
+            'defend':       { cat: 'combat_defend', prefer: 'Defend' },
+            'shoot':        { cat: 'ranged', prefer: 'Pistol Shoot' },
+            'throw':        { cat: 'ranged', prefer: 'Throw Object' },
+            'spell':        { cat: 'ranged', prefer: 'Spell Simple Shoot' },
+
+            // Interact
+            'eat':          { cat: 'interact', prefer: 'Consume' },
+            'consume':      { cat: 'interact', prefer: 'Consume' },
+            'pickup':       { cat: 'interact', prefer: 'PickUp' },
+            'push':         { cat: 'interact', prefer: 'Push Loop' },
+            'use_object':   { cat: 'interact', prefer: 'Interact' },
+            'interact':     { cat: 'interact', prefer: 'Interact' },
+            'farm':         { cat: 'interact', prefer: 'Farm' },
+            'fix':          { cat: 'interact', prefer: 'Fixing' },
+            'chop':         { cat: 'interact', prefer: 'TreeChopping' },
+
+            // Emote
+            'dance':        { cat: 'emote', prefer: 'Dance' },
+            'bow':          { cat: 'emote', prefer: 'Bow' },
+            'wave':         { cat: 'emote', prefer: 'Greeting' },
+            'greet':        { cat: 'emote', prefer: 'Greeting' },
+            'nod':          { cat: 'emote', prefer: 'Head Nod' },
+            'yes':          { cat: 'emote', prefer: 'Yes' },
+            'no':           { cat: 'emote', prefer: 'Idle No' },
+            'reject':       { cat: 'emote', prefer: 'Reject' },
+            'angry':        { cat: 'emote', prefer: 'Angry' },
+            'confused':     { cat: 'emote', prefer: 'Confused' },
+            'victory':      { cat: 'emote', prefer: 'Victory' },
+
+            // States
+            'sleep':        { cat: 'sleep', prefer: 'Sleeping' },
+            'sit':          { cat: 'sit', prefer: 'Sitting Enter' },
+            'die':          { cat: 'death', prefer: 'Death' },
+            'hit':          { cat: 'hit', prefer: 'Hit' },
+
+            // Jump
+            'jump':         { cat: 'jump', prefer: 'Jump Start' },
+            'roll':         { cat: 'interact', prefer: 'Roll' },
+            'backflip':     { cat: 'emote', prefer: 'Backflip' },
+        };
+
+        const mapping = actionMap[actionName];
+        if (mapping) {
+            await this.playOneShot(mapping.cat, mapping.prefer);
+        } else {
+            // Try to find any clip whose name contains the action name
+            const nameLower = actionName.toLowerCase();
+            const clip = this.clips.find(c => c.name.toLowerCase().includes(nameLower));
+            if (clip) {
+                await this.playOneShot(this.clipCategoryMap[clip.name], clip.name);
+            }
+        }
+    }
+
+    /**
+     * Update the mixer. Call every frame.
+     */
+    update(dt) {
+        this.mixer.update(dt);
+    }
+
+    /**
+     * Dispose of all resources
+     */
+    dispose() {
+        this.mixer.stopAllAction();
+        this.mixer.uncacheRoot(this.model);
+    }
+}
 
 // ================================================================
 //  MODULE: Room
@@ -240,6 +822,71 @@ class WorldManager {
     }
 
     doorsForRoom(roomId) { return this.doors.filter(d => d.connects(roomId)); }
+
+    /**
+     * Find the wall edge of any room nearest to (px, py).
+     * Returns { room, edge:'top'|'bottom'|'left'|'right', orientation:'h'|'v',
+     *          x, y, dist } or null.
+     * The returned x/y is the click projected onto the wall, clamped so the
+     * door footprint stays within the wall extent.
+     */
+    pickWallNearPoint(px, py, maxDist = 80) {
+        let best = null;
+        const half = DOOR_WIDTH / 2;
+        for (const r of this.rooms) {
+            // Candidate edges for this room
+            const cands = [
+                { edge:'top',    orientation:'h', y:r.y,      x: clamp(px, r.x+half, r.right-half), dist: Math.abs(py - r.y) },
+                { edge:'bottom', orientation:'h', y:r.bottom, x: clamp(px, r.x+half, r.right-half), dist: Math.abs(py - r.bottom) },
+                { edge:'left',   orientation:'v', x:r.x,      y: clamp(py, r.y+half, r.bottom-half), dist: Math.abs(px - r.x) },
+                { edge:'right',  orientation:'v', x:r.right,  y: clamp(py, r.y+half, r.bottom-half), dist: Math.abs(px - r.right) },
+            ];
+            for (const c of cands) {
+                if (c.dist > maxDist) continue;
+                // Click must roughly project onto the wall extent (not far past corners)
+                if (c.orientation === 'h' && (px < r.x - 10 || px > r.right + 10)) continue;
+                if (c.orientation === 'v' && (py < r.y - 10 || py > r.bottom + 10)) continue;
+                if (!best || c.dist < best.dist) best = { room:r, ...c };
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Returns true if a door of width DOOR_WIDTH centered on (x,y) along the
+     * given edge of `roomId` doesn't overlap an existing door on the same edge.
+     */
+    canFitDoorAt(roomId, edge, x, y) {
+        const room = this.getRoom(roomId);
+        if (!room) return false;
+        const margin = 4;  // small gap between adjacent doors
+        for (const d of this.doors) {
+            if (!d.connects(roomId)) continue;
+            // Identify the edge the existing door sits on for this room
+            const onEdge =
+                (edge === 'top'    && d.orientation === 'h' && Math.abs(d.y - room.y)      < WALL_THICK + 1) ||
+                (edge === 'bottom' && d.orientation === 'h' && Math.abs(d.y - room.bottom) < WALL_THICK + 1) ||
+                (edge === 'left'   && d.orientation === 'v' && Math.abs(d.x - room.x)      < WALL_THICK + 1) ||
+                (edge === 'right'  && d.orientation === 'v' && Math.abs(d.x - room.right)  < WALL_THICK + 1);
+            if (!onEdge) continue;
+            const sep = (edge === 'top' || edge === 'bottom') ? Math.abs(d.x - x) : Math.abs(d.y - y);
+            if (sep < DOOR_WIDTH + margin) return false;
+        }
+        return true;
+    }
+
+    /** If the chosen edge is shared with another room, return that room. */
+    findRoomAcross(room, edge, x, y) {
+        const tol = WALL_THICK + 2;
+        for (const other of this.rooms) {
+            if (other === room) continue;
+            if (edge === 'right'  && Math.abs(other.x - room.right)  < tol && y >= other.y && y <= other.bottom) return other;
+            if (edge === 'left'   && Math.abs(other.right - room.x)  < tol && y >= other.y && y <= other.bottom) return other;
+            if (edge === 'bottom' && Math.abs(other.y - room.bottom) < tol && x >= other.x && x <= other.right) return other;
+            if (edge === 'top'    && Math.abs(other.bottom - room.y) < tol && x >= other.x && x <= other.right) return other;
+        }
+        return null;
+    }
 
     findSharedWall(rA, rB) {
         const tol = WALL_THICK + 2;
@@ -412,14 +1059,15 @@ class LogSystem {
 }
 
 // ================================================================
-//  MODULE: Agent — identical logic to 2D engine, coords are 2D
+//  MODULE: Agent
 // ================================================================
 class Agent {
     static _n = 0;
-    constructor(x, y, roomId) {
+    constructor(x, y, roomId, gender = 'male') {
         Agent._n++;
         this.id    = `agent_${Agent._n}`;
         this.label = `Agent ${Agent._n}`;
+        this.gender = gender;
         this.colorHex = AGENT_COLORS[(Agent._n-1) % AGENT_COLORS.length];
         this.color = hex(this.colorHex);
         this.x = x; this.y = y;
@@ -438,6 +1086,13 @@ class Agent {
         this._autoInterval = randR(AUTO_MIN, AUTO_MAX);
         this._lastIdleStart = performance.now();
         this._isAutonomous = true;
+
+        // AnimationIntelligence — assigned when 3D model is created
+        /** @type {AnimationIntelligence|null} */
+        this.animEngine = null;
+
+        // Movement speed tracking for animation-speed sync
+        this._speed = 0;
     }
 
     get isMoving() { return Math.hypot(this.targetX-this.x, this.targetY-this.y) > 0.8; }
@@ -468,13 +1123,47 @@ class Agent {
         const dy = this.targetY - this.y;
         const d = Math.hypot(dx, dy);
         if (d < 0.8) {
+            this._speed = 0;
             if (this._moveResolve) { const r=this._moveResolve; this._moveResolve=null; r(); }
             return;
         }
         const step = Math.min(MOVE_SPEED * dt, d);
         this.x += (dx/d)*step;
         this.y += (dy/d)*step;
-        this.facing = Math.atan2(dy,dx);  // kept for parity; 3D rotation computed in SceneManager
+        this.facing = Math.atan2(dy,dx);
+        this._speed = MOVE_SPEED;
+    }
+
+    /**
+     * Update the animation engine state based on agent behavior.
+     * Called every frame.
+     */
+    updateAnimation(dt) {
+        if (!this.animEngine) return;
+
+        // Only update locomotive state if not playing a one-shot action
+        if (!this.animEngine._isPlayingOneShot) {
+            if (this.isMoving) {
+                // House environment: walk only (sprint/jog disabled). Toggle
+                // ALLOW_RUN at the top of the file to permit running again.
+                if (ALLOW_RUN && this._speed >= MOVE_SPEED * 1.5) {
+                    this.animEngine.setState('run');
+                } else {
+                    this.animEngine.setState('walk');
+                }
+            } else {
+                // Pick idle variant based on current action context
+                if (this.currentAction === 'sleep') {
+                    this.animEngine.setState('sleep');
+                } else if (this.currentAction === 'sit' || this.currentAction === 'relax') {
+                    this.animEngine.setState('sit');
+                } else {
+                    this.animEngine.setState('idle');
+                }
+            }
+        }
+
+        this.animEngine.update(dt);
     }
 
     async executeAction(name, ctx) {
@@ -541,32 +1230,86 @@ class InteractionSystem {
     _init() {
         const wait = ms => new Promise(r=>setTimeout(r,ms));
         const rel = () => this.game.relationships;
-        this.register('greet',      { fn: async(a,b,g)=>{ await wait(800); rel().modifyBoth(a.id,b.id,3); a.state.modify({comfort:5}); b.state.modify({comfort:3}); g.log(`${a.label} waved at ${b.label}`,'int'); }});
-        this.register('talk',       { fn: async(a,b,g)=>{ await wait(1500); rel().modifyBoth(a.id,b.id,5); a.state.modify({comfort:6,boredom:-8}); b.state.modify({comfort:6,boredom:-8}); g.log(`${a.label} and ${b.label} chatted`,'int'); }});
-        this.register('compliment', { fn: async(a,b,g)=>{ await wait(800); rel().modify(b.id,a.id,8); b.state.modify({comfort:10}); g.log(`${a.label} complimented ${b.label}`,'int'); }});
-        this.register('insult',     { fn: async(a,b,g)=>{ await wait(600); rel().modify(b.id,a.id,-12); rel().modify(a.id,b.id,-4); b.state.modify({comfort:-15}); g.log(`${a.label} insulted ${b.label}!`,'warn'); }});
-        this.register('encourage',  { fn: async(a,b,g)=>{ await wait(1000); rel().modify(b.id,a.id,6); b.state.modify({comfort:8,energy:5}); g.log(`${a.label} encouraged ${b.label}`,'int'); }});
+
+        this.register('greet', { fn: async(a,b,g)=>{
+            // Trigger greeting animation on actor
+            if (a.animEngine) a.animEngine.triggerAction('greet');
+            await wait(800);
+            rel().modifyBoth(a.id,b.id,3);
+            a.state.modify({comfort:5}); b.state.modify({comfort:3});
+            g.log(`${a.label} waved at ${b.label}`,'int');
+        }});
+
+        this.register('talk', { fn: async(a,b,g)=>{
+            // Both agents play talking idle
+            if (a.animEngine) a.animEngine.playByName('Idle Talking Loop', true);
+            if (b.animEngine) b.animEngine.playByName('Idle Talking Loop', true);
+            await wait(1500);
+            // Return to idle
+            if (a.animEngine) a.animEngine.setState('idle');
+            if (b.animEngine) b.animEngine.setState('idle');
+            rel().modifyBoth(a.id,b.id,5);
+            a.state.modify({comfort:6,boredom:-8}); b.state.modify({comfort:6,boredom:-8});
+            g.log(`${a.label} and ${b.label} chatted`,'int');
+        }});
+
+        this.register('compliment', { fn: async(a,b,g)=>{
+            if (a.animEngine) a.animEngine.triggerAction('nod');
+            await wait(800);
+            rel().modify(b.id,a.id,8); b.state.modify({comfort:10});
+            g.log(`${a.label} complimented ${b.label}`,'int');
+        }});
+
+        this.register('insult', { fn: async(a,b,g)=>{
+            if (a.animEngine) a.animEngine.triggerAction('angry');
+            await wait(600);
+            rel().modify(b.id,a.id,-12); rel().modify(a.id,b.id,-4);
+            b.state.modify({comfort:-15});
+            g.log(`${a.label} insulted ${b.label}!`,'warn');
+        }});
+
+        this.register('encourage', { fn: async(a,b,g)=>{
+            if (a.animEngine) a.animEngine.triggerAction('yes');
+            await wait(1000);
+            rel().modify(b.id,a.id,6); b.state.modify({comfort:8,energy:5});
+            g.log(`${a.label} encouraged ${b.label}`,'int');
+        }});
+
         this.register('invite_watch_tv', { fn: async(a,b,g)=>{
             const tv = g.findObject('tv'); if (!tv){ g.log('No TV!','warn'); return; }
             const pt = tv.interactionPoint;
             g.log(`${a.label} invited ${b.label} to watch TV`,'int');
             await Promise.all([a.navigateTo(pt.x-15,pt.y), b.navigateTo(pt.x+15,pt.y)]);
+            // Both sit
+            if (a.animEngine) a.animEngine.setState('sit');
+            if (b.animEngine) b.animEngine.setState('sit');
             await wait(2000);
             a.state.modify({boredom:-30,comfort:8}); b.state.modify({boredom:-30,comfort:8});
             rel().modifyBoth(a.id,b.id,5);
+            if (a.animEngine) a.animEngine.setState('idle');
+            if (b.animEngine) b.animEngine.setState('idle');
             g.log(`${a.label} and ${b.label} watched TV together`,'int');
         }});
+
         this.register('invite_play', { fn: async(a,b,g)=>{
             const con = g.findObject('console'); if (!con){ g.log('No console!','warn'); return; }
             const pt = con.interactionPoint;
             g.log(`${a.label} invited ${b.label} to play`,'int');
             await Promise.all([a.navigateTo(pt.x-15,pt.y), b.navigateTo(pt.x+15,pt.y)]);
+            if (a.animEngine) a.animEngine.triggerAction('victory');
             await wait(2500);
             a.state.modify({boredom:-35,comfort:6}); b.state.modify({boredom:-35,comfort:6});
             rel().modifyBoth(a.id,b.id,6);
             g.log(`${a.label} and ${b.label} played together`,'int');
         }});
-        this.register('complain',   { fn: async(a,b,g)=>{ await wait(1000); rel().modify(b.id,a.id,-3); a.state.modify({comfort:4}); b.state.modify({comfort:-5}); g.log(`${a.label} complained to ${b.label}`,'int'); }});
+
+        this.register('complain', { fn: async(a,b,g)=>{
+            if (a.animEngine) a.animEngine.triggerAction('reject');
+            await wait(1000);
+            rel().modify(b.id,a.id,-3);
+            a.state.modify({comfort:4}); b.state.modify({comfort:-5});
+            g.log(`${a.label} complained to ${b.label}`,'int');
+        }});
     }
 }
 
@@ -638,6 +1381,127 @@ class AutonomySystem {
 // ================================================================
 //  MODULE: SceneManager3D — Three.js rendering synced from 2D state
 // ================================================================
+// ================================================================
+//  MODULE: CameraController — orbit / third-person follow / FPS
+// ================================================================
+class CameraController {
+    constructor(camera, orbitControls, domElement) {
+        this.camera = camera;
+        this.orbit = orbitControls;
+        this.dom = domElement;
+        this.mode = 'orbit';     // 'orbit' | 'follow' | 'fps'
+        this.target = null;      // selected Agent (for follow/fps)
+        this._yaw = 0;           // FPS yaw (additive look offset on top of agent rotation)
+        this._pitch = 0;
+        this._followDist = 3.5;  // metres behind agent
+        this._followHeight = 1.7;
+        this._eyeHeight = 1.55;  // FPS eye height (relative to agent feet, world units)
+        this._tmp = new THREE.Vector3();
+        this._tmp2 = new THREE.Vector3();
+        this._bindMouseLook();
+    }
+
+    _bindMouseLook() {
+        // Pointer-lock based mouse look — only active in FPS mode
+        this.dom.addEventListener('click', () => {
+            if (this.mode === 'fps' && document.pointerLockElement !== this.dom) {
+                this.dom.requestPointerLock?.();
+            }
+        });
+        document.addEventListener('mousemove', (e) => {
+            if (this.mode !== 'fps' || document.pointerLockElement !== this.dom) return;
+            const sens = 0.0025;
+            this._yaw   -= e.movementX * sens;
+            this._pitch -= e.movementY * sens;
+            this._pitch = clamp(this._pitch, -Math.PI/2 + 0.05, Math.PI/2 - 0.05);
+        });
+        // Follow mode: scroll wheel adjusts follow distance
+        this.dom.addEventListener('wheel', (e) => {
+            if (this.mode !== 'follow') return;
+            e.preventDefault();
+            this._followDist = clamp(this._followDist + e.deltaY * 0.005, 1.5, 10);
+        }, { passive: false });
+    }
+
+    setMode(mode, agent = null) {
+        this.mode = mode;
+        if (agent) this.target = agent;
+        if (mode === 'orbit') {
+            this.orbit.enabled = true;
+            if (document.pointerLockElement === this.dom) document.exitPointerLock?.();
+        } else {
+            this.orbit.enabled = false;
+            if (mode === 'fps') {
+                // Reset look offset relative to agent facing
+                this._yaw = 0;
+                this._pitch = 0;
+            }
+            if (mode === 'follow') {
+                if (document.pointerLockElement === this.dom) document.exitPointerLock?.();
+            }
+        }
+    }
+
+    /**
+     * Find the head bone of an agent's 3D rig. Cached on the rec.
+     * Heuristic: any bone whose name contains "head".
+     */
+    _findHead(rec) {
+        if (rec._headBone !== undefined) return rec._headBone;
+        let head = null;
+        rec.group.traverse(o => {
+            if (head) return;
+            if (o.isBone && /head/i.test(o.name)) head = o;
+        });
+        rec._headBone = head;
+        return head;
+    }
+
+    update(dt, sceneMgr) {
+        if (this.mode === 'orbit' || !this.target) return;
+
+        const rec = sceneMgr._agents3D.get(this.target.id);
+        if (!rec) return;
+
+        const agent = this.target;
+        const ax = agent.x * WORLD_SCALE;
+        const az = agent.y * WORLD_SCALE;
+
+        if (this.mode === 'follow') {
+            // Position camera behind the agent based on its current facing.
+            const facing = rec.rotY;
+            const back = this._tmp.set(-Math.sin(facing), 0, -Math.cos(facing));
+            const desiredX = ax + back.x * this._followDist;
+            const desiredZ = az + back.z * this._followDist;
+            const desiredY = this._followHeight;
+
+            // Smooth lerp
+            const k = 1 - Math.pow(0.001, dt);
+            this.camera.position.x += (desiredX - this.camera.position.x) * k;
+            this.camera.position.y += (desiredY - this.camera.position.y) * k;
+            this.camera.position.z += (desiredZ - this.camera.position.z) * k;
+            this.camera.lookAt(ax, this._eyeHeight * 0.85, az);
+        } else if (this.mode === 'fps') {
+            const head = this._findHead(rec);
+            if (head) {
+                head.getWorldPosition(this._tmp);
+            } else {
+                this._tmp.set(ax, this._eyeHeight, az);
+            }
+            // Slight forward push to avoid clipping the head/face mesh
+            const facing = rec.rotY + this._yaw;
+            const fwd = this._tmp2.set(Math.sin(facing), 0, Math.cos(facing));
+            this.camera.position.copy(this._tmp).addScaledVector(fwd, 0.15);
+
+            // Look direction: agent facing + yaw/pitch offset
+            const lookX = this.camera.position.x + Math.sin(facing) * Math.cos(this._pitch);
+            const lookY = this.camera.position.y + Math.sin(this._pitch);
+            const lookZ = this.camera.position.z + Math.cos(facing) * Math.cos(this._pitch);
+            this.camera.lookAt(lookX, lookY, lookZ);
+        }
+    }
+}
+
 class SceneManager3D {
     constructor(container) {
         this.container = container;
@@ -700,18 +1564,28 @@ class SceneManager3D {
         this._rooms3D   = new Map();
         this._objects3D = new Map();
         this._agents3D  = new Map();
-        this._worldDirty = -1;  // force first build
+        this._worldDirty = -1;
 
-        // GLB template (loaded async)
-        this._modelTemplate = null;
-        this._modelAnimations = null;
-        this._modelScale = 1;
+        // Model templates (loaded async) — separate for male and female
+        this._modelTemplates = { male: null, female: null };
+        this._modelAnimations = { male: null, female: null };
+        this._modelScales = { male: 1, female: 1 };
+
+        // Furniture templates: type → { scene, scale }
+        this._furnitureTemplates = {};
 
         this._resize();
         window.addEventListener('resize', () => this._resize());
 
         // Raycaster for clicks
         this._raycaster = new THREE.Raycaster();
+
+        // Camera mode controller (orbit / follow / fps)
+        this.cameraCtl = new CameraController(this.camera, this.controls, this.renderer.domElement);
+    }
+
+    setCameraMode(mode, agent) {
+        this.cameraCtl.setMode(mode, agent);
     }
 
     _resize() {
@@ -721,19 +1595,84 @@ class SceneManager3D {
         this.camera.updateProjectionMatrix();
     }
 
-    async loadModelTemplate() {
+    async loadModelTemplates(onProgress) {
         const loader = new GLTFLoader();
-        const gltf = await loader.loadAsync(MODEL_PATH);
-        this._modelTemplate = gltf.scene;
-        this._modelAnimations = gltf.animations;
+        const loadOne = async (key, path, label, p0, p1) => {
+            if (onProgress) onProgress(`Loading ${label} model...`, p0);
+            try {
+                const gltf = await loader.loadAsync(path);
+                this._modelTemplates[key] = gltf.scene;
+                this._modelAnimations[key] = this._filterAnimations(gltf.animations);
+                gltf.scene.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+                this._modelScales[key] = this._computeModelScale(gltf.scene, key);
+                const dropped = gltf.animations.length - this._modelAnimations[key].length;
+                if (onProgress) onProgress(`${label} loaded · ${this._modelAnimations[key].length} anims (${dropped} filtered) · scale ${this._modelScales[key].toFixed(3)}`, p1);
+            } catch (e) {
+                console.warn(`${label} model load failed:`, e);
+                if (onProgress) onProgress(`${label} failed — using fallback`, p1);
+            }
+        };
+        await loadOne('male',   MALE_MODEL_PATH,   'Male',   10, 35);
+        await loadOne('female', FEMALE_MODEL_PATH, 'Female', 40, 65);
+        await this._loadFurnitureTemplates(loader, onProgress);
+        if (onProgress) onProgress('Animation engine ready!', 100);
+    }
 
-        // Enable shadows
-        gltf.scene.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    async _loadFurnitureTemplates(loader, onProgress) {
+        const entries = Object.entries(FURNITURE_GLBS);
+        for (let i = 0; i < entries.length; i++) {
+            const [type, { path, fitHeight }] = entries[i];
+            const pct = 70 + Math.round((i / entries.length) * 25);
+            if (onProgress) onProgress(`Loading furniture: ${type}...`, pct);
+            try {
+                const gltf = await loader.loadAsync(path);
+                gltf.scene.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+                const box = new THREE.Box3().setFromObject(gltf.scene);
+                const size = box.getSize(new THREE.Vector3());
+                const scale = fitHeight / Math.max(size.y, 0.001);
+                this._furnitureTemplates[type] = { scene: gltf.scene, scale, baseY: -box.min.y * scale };
+            } catch (e) {
+                console.warn(`Furniture ${type} (${path}) failed:`, e);
+            }
+        }
+    }
 
-        // Measure for scaling
-        const box = new THREE.Box3().setFromObject(gltf.scene);
-        const size = box.getSize(new THREE.Vector3());
-        this._modelScale = TARGET_HEIGHT / Math.max(size.y, 0.001);
+    /**
+     * Compute per-model scale that lands the rendered character at TARGET_HEIGHT.
+     * Measures the union bbox of SKINNED meshes only — accessories, hair planes,
+     * and helper meshes (which often distort the bbox in T-pose) are excluded.
+     * Falls back to full-scene bbox if no skinned mesh exists.
+     */
+    _computeModelScale(scene, key) {
+        const override = MODEL_SCALE_OVERRIDE[key];
+        if (override != null) return override;
+
+        let height = 0;
+        const tmp = new THREE.Box3();
+        const acc = new THREE.Box3();
+        let any = false;
+        scene.traverse(o => {
+            if (o.isSkinnedMesh && o.geometry) {
+                o.geometry.computeBoundingBox();
+                if (o.geometry.boundingBox) {
+                    tmp.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
+                    if (any) acc.union(tmp); else { acc.copy(tmp); any = true; }
+                }
+            }
+        });
+        if (any) height = acc.getSize(new THREE.Vector3()).y;
+        if (!height) height = new THREE.Box3().setFromObject(scene).getSize(new THREE.Vector3()).y;
+        return TARGET_HEIGHT / Math.max(height, 0.001);
+    }
+
+    /** Strip blacklisted animation clips before they enter the classifier. */
+    _filterAnimations(clips) {
+        if (!clips) return [];
+        const isBad = name => {
+            const n = name.toLowerCase();
+            return ANIM_BLACKLIST.some(bad => n.includes(bad));
+        };
+        return clips.filter(c => !isBad(c.name));
     }
 
     // Convert screen pixel → 2D sim coords via ground raycast
@@ -753,7 +1692,7 @@ class SceneManager3D {
     // Picks the nearest agent whose screen projection is within R pixels of (sx,sy).
     pickAgentAtScreen(sx, sy, game) {
         const rect = this.renderer.domElement.getBoundingClientRect();
-        let best = null, bestD = 30;  // pixel tolerance
+        let best = null, bestD = 30;
         const v = new THREE.Vector3();
         for (const agent of game.agents) {
             v.set(agent.x * WORLD_SCALE, TARGET_HEIGHT * 0.5, agent.y * WORLD_SCALE);
@@ -771,7 +1710,6 @@ class SceneManager3D {
         if (game.world._dirty === this._worldDirty) return;
         this._worldDirty = game.world._dirty;
 
-        // Clear
         while (this.roomGroup.children.length) this.roomGroup.remove(this.roomGroup.children[0]);
         while (this.doorGroup.children.length) this.doorGroup.remove(this.doorGroup.children[0]);
         this._rooms3D.clear();
@@ -787,7 +1725,7 @@ class SceneManager3D {
         const cx = (room.x + room.w/2) * s;
         const cz = (room.y + room.h/2) * s;
 
-        // Floor (slightly above ground to avoid z-fighting)
+        // Floor
         const floor = new THREE.Mesh(
             new THREE.PlaneGeometry(W, H),
             new THREE.MeshStandardMaterial({ color: room.color, roughness: 0.85 })
@@ -802,9 +1740,7 @@ class SceneManager3D {
         const wallMat = new THREE.MeshStandardMaterial({ color: 0x3a3a5c, roughness: 0.8 });
         const doorsOnRoom = game.world.doorsForRoom(room.id);
 
-        // For each of 4 edges, compute gaps for doors on that edge, then create wall segments
         const makeSegments = (start, end, gaps) => {
-            // gaps = [[g0, g1], ...] sorted
             const segs = [];
             let cur = start;
             for (const [g0, g1] of gaps) {
@@ -815,7 +1751,7 @@ class SceneManager3D {
             return segs;
         };
 
-        // Top edge (y = room.y), horizontal wall along X
+        // Top edge
         const topDoors = doorsOnRoom.filter(d => d.orientation === 'h' && Math.abs(d.y - room.y) < WALL_THICK + 1);
         const topGaps = topDoors.map(d => [d.x - DOOR_WIDTH/2, d.x + DOOR_WIDTH/2]).sort((a,b)=>a[0]-b[0]);
         for (const [a, b] of makeSegments(room.x, room.right, topGaps)) {
@@ -872,12 +1808,10 @@ class SceneManager3D {
         for (const obj of game.objects) {
             seen.add(obj.id);
             if (!this._objects3D.has(obj.id)) this._createObject3D(obj);
-            // Update occupancy tint
             const rec = this._objects3D.get(obj.id);
             rec.body.material.emissiveIntensity = obj.isOccupied ? 0.5 : 0.1;
             rec.body.material.emissive.setHex(obj.isOccupied ? 0xe94560 : obj.def.color);
         }
-        // Remove stale
         for (const [id, rec] of [...this._objects3D.entries()]) {
             if (!seen.has(id)) { this.objectGroup.remove(rec.group); this._objects3D.delete(id); }
         }
@@ -887,33 +1821,53 @@ class SceneManager3D {
         const s = WORLD_SCALE;
         const grp = new THREE.Group();
         const w = obj.w * s, d = obj.h * s, h = 0.5;
-        const body = new THREE.Mesh(
-            new THREE.BoxGeometry(w, h, d),
-            new THREE.MeshStandardMaterial({ color: obj.def.color, roughness: 0.6, emissive: obj.def.color, emissiveIntensity: 0.1 })
-        );
-        body.castShadow = true; body.receiveShadow = true;
-        body.position.y = h/2;
-        grp.add(body);
 
-        // Icon sprite (emoji on canvas)
+        let body;          // material-bearing mesh used for the occupancy tint
+        let usedGLB = false;
+        const tmpl = this._furnitureTemplates[obj.type];
+        if (tmpl) {
+            // Real furniture model
+            const inst = SkeletonUtils.clone(tmpl.scene);
+            inst.scale.setScalar(tmpl.scale);
+            inst.position.y = tmpl.baseY || 0;
+            inst.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+            grp.add(inst);
+            usedGLB = true;
+            // First mesh found acts as the "body" for tint feedback (occupied glow).
+            // Clone the material so per-instance emissive changes don't bleed across clones.
+            inst.traverse(o => { if (!body && o.isMesh) body = o; });
+            if (body) {
+                body.material = body.material.clone();
+                if (!body.material.emissive) body.material.emissive = new THREE.Color(0x000000);
+            }
+        } else {
+            // Fallback box for objects without a GLB (kitchen, bed, console, ...)
+            body = new THREE.Mesh(
+                new THREE.BoxGeometry(w, h, d),
+                new THREE.MeshStandardMaterial({ color: obj.def.color, roughness: 0.6, emissive: obj.def.color, emissiveIntensity: 0.1 })
+            );
+            body.castShadow = true; body.receiveShadow = true;
+            body.position.y = h/2;
+            grp.add(body);
+        }
+
+        // Emoji label sprite (kept for all objects so users can identify type)
         const cv = document.createElement('canvas');
         cv.width = 128; cv.height = 128;
         const cx = cv.getContext('2d');
-        cx.font = '96px serif';
-        cx.textAlign = 'center';
-        cx.textBaseline = 'middle';
+        cx.font = '96px serif'; cx.textAlign = 'center'; cx.textBaseline = 'middle';
         cx.fillText(obj.def.icon, 64, 72);
         const tex = new THREE.CanvasTexture(cv);
         tex.colorSpace = THREE.SRGBColorSpace;
-        const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
-        spr.scale.set(0.6, 0.6, 0.6);
-        spr.position.y = h + 0.35;
+        const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+        spr.scale.set(0.5, 0.5, 0.5);
+        spr.position.y = (usedGLB ? 1.4 : (h + 0.35));
+        spr.renderOrder = 999;
         grp.add(spr);
 
-        // Position (center of object rect)
         grp.position.set((obj.x + obj.w/2) * s, 0, (obj.y + obj.h/2) * s);
         this.objectGroup.add(grp);
-        this._objects3D.set(obj.id, { group: grp, body, sprite: spr });
+        this._objects3D.set(obj.id, { group: grp, body, sprite: spr, usedGLB });
     }
 
     // Sync agents (3D) — handles add/remove, movement, rotation, animation
@@ -928,6 +1882,7 @@ class SceneManager3D {
             if (!seen.has(id)) {
                 this.agentGroup.remove(rec.group);
                 rec.label?.remove();
+                if (rec.animEngine) rec.animEngine.dispose();
                 this._agents3D.delete(id);
             }
         }
@@ -935,26 +1890,46 @@ class SceneManager3D {
 
     _createAgent3D(agent) {
         const grp = new THREE.Group();
+        const gender = agent.gender || 'male';
+        const template = this._modelTemplates[gender];
+        const animations = this._modelAnimations[gender];
+        const scale = this._modelScales[gender];
 
-        let mixer = null, walkAction = null, hasAnim = false;
+        let animEngine = null;
 
-        if (this._modelTemplate) {
+        if (template) {
             // Clone the GLB (SkeletonUtils preserves independent skeletal animation)
-            const model = SkeletonUtils.clone(this._modelTemplate);
-            model.scale.setScalar(this._modelScale);
-            // Lift so feet sit on ground
-            const box = new THREE.Box3().setFromObject(model);
-            model.position.y -= box.min.y;
+            const model = SkeletonUtils.clone(template);
+            model.scale.setScalar(scale);
             model.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
             grp.add(model);
 
-            if (this._modelAnimations && this._modelAnimations.length) {
-                mixer = new THREE.AnimationMixer(model);
-                walkAction = mixer.clipAction(this._modelAnimations[0]);
-                walkAction.setLoop(THREE.LoopRepeat);
-                walkAction.play();
-                walkAction.paused = true;  // start frozen; unpauses when isMoving
-                hasAnim = true;
+            if (animations && animations.length) {
+                // Create the AnimationIntelligence engine for this agent
+                animEngine = new AnimationIntelligence(model, animations, `${agent.label} (${gender})`);
+                agent.animEngine = animEngine;
+                // Force a sample so the next bbox read uses the IDLE pose (not T-pose)
+                animEngine.update(0.0001);
+            }
+
+            // Lift feet to ground AFTER idle has been sampled, so vertical bounds
+            // reflect the actual rendered pose (T-pose arms vs. relaxed arms differ).
+            model.updateMatrixWorld(true);
+            const box = new THREE.Box3().setFromObject(model);
+            if (isFinite(box.min.y)) model.position.y -= box.min.y;
+
+            if (animEngine) {
+
+                // Log classification summary
+                const summary = animEngine.getClassificationSummary();
+                console.log(`🧠 ${agent.label} (${gender}) — Animation Classification:`, summary);
+
+                // Count categories
+                let totalClassified = 0;
+                for (const [cat, clips] of Object.entries(summary)) {
+                    if (cat !== 'unclassified') totalClassified += clips.length;
+                }
+                game.log(`🧠 ${agent.label}: ${animations.length} anims scanned, ${totalClassified} classified`, 'anim');
             }
         } else {
             // Fallback: colored capsule
@@ -976,6 +1951,16 @@ class SceneManager3D {
         ring.position.y = 0.01;
         grp.add(ring);
 
+        // Gender indicator ring (blue=male, pink=female)
+        const genderColor = gender === 'female' ? 0xff69b4 : 0x4488ff;
+        const genderRing = new THREE.Mesh(
+            new THREE.RingGeometry(0.22, 0.27, 24),
+            new THREE.MeshBasicMaterial({ color: genderColor, transparent: true, opacity: 0.5, side: THREE.DoubleSide })
+        );
+        genderRing.rotation.x = -Math.PI/2;
+        genderRing.position.y = 0.011;
+        grp.add(genderRing);
+
         // Selection ring (hidden by default)
         const selRing = new THREE.Mesh(
             new THREE.RingGeometry(0.42, 0.5, 32),
@@ -996,9 +1981,9 @@ class SceneManager3D {
         this.labelsRoot.appendChild(lbl);
 
         this._agents3D.set(agent.id, {
-            group: grp, mixer, walkAction, hasAnim,
+            group: grp, animEngine,
             selRing, label: lbl,
-            rotY: 0,      // current smoothed rotation
+            rotY: 0,
         });
     }
 
@@ -1007,13 +1992,11 @@ class SceneManager3D {
         rec.group.position.x = agent.x * WORLD_SCALE;
         rec.group.position.z = agent.y * WORLD_SCALE;
 
-        // Rotation: face movement direction. Model's default forward is +Z.
-        // For direction (dx, dz) in world, rotation.y = atan2(dx, dz).
+        // Rotation
         const dx = agent.targetX - agent.x;
         const dz = agent.targetY - agent.y;
         if (Math.hypot(dx, dz) > 0.8) {
             const targetY = Math.atan2(dx, dz);
-            // Smooth interpolation (shortest arc)
             let diff = targetY - rec.rotY;
             while (diff > Math.PI)  diff -= Math.PI * 2;
             while (diff < -Math.PI) diff += Math.PI * 2;
@@ -1021,11 +2004,8 @@ class SceneManager3D {
         }
         rec.group.rotation.y = rec.rotY;
 
-        // Animation: walk plays while moving, paused+frozen when stopped
-        if (rec.hasAnim) {
-            rec.walkAction.paused = !agent.isMoving;
-            rec.mixer.update(dt);
-        }
+        // Animation: Delegate to Agent's animation engine
+        agent.updateAnimation(dt);
 
         // Selection
         rec.selRing.visible = (game.selectedAgent === agent);
@@ -1045,7 +2025,6 @@ class SceneManager3D {
         const sx = (v.x * 0.5 + 0.5) * rect.width;
         const sy = (-v.y * 0.5 + 0.5) * rect.height;
 
-        // Hide if behind camera or off-screen
         if (v.z > 1 || sx < -50 || sx > rect.width + 50 || sy < -50 || sy > rect.height + 50) {
             rec.label.style.display = 'none';
             return;
@@ -1055,8 +2034,12 @@ class SceneManager3D {
         rec.label.style.top  = sy + 'px';
 
         const moods = {happy:'\u{1F60A}',fine:'\u{1F610}',sad:'\u{1F622}',miserable:'\u{1F62D}'};
-        let html = `<span style="color:${agent.color}">${agent.label}</span><span class="mood">${moods[agent.state.moodLabel]||''}</span>`;
+        const genderIcon = agent.gender === 'female' ? '♀' : '♂';
+        let html = `<span style="color:${agent.color}">${agent.label}</span><span style="font-size:7px;color:${agent.gender==='female'?'#ff69b4':'#4488ff'}">${genderIcon}</span><span class="mood">${moods[agent.state.moodLabel]||''}</span>`;
         if (agent.currentAction) html += `<span class="act">${agent.currentAction}</span>`;
+        if (agent.animEngine) {
+            html += `<span class="anim-state">▸ ${agent.animEngine.currentClipName}</span>`;
+        }
         if (rec.label._lastHTML !== html) { rec.label.innerHTML = html; rec.label._lastHTML = html; }
     }
 
@@ -1064,12 +2047,13 @@ class SceneManager3D {
         this._rebuildWorldIfNeeded(game);
         this._syncObjects(game);
         this._syncAgents(game, dt);
-        this.controls.update();
+        if (this.cameraCtl.mode === 'orbit') this.controls.update();
+        this.cameraCtl.update(dt, this);
         this.renderer.render(this.scene, this.camera);
 
-        // Zoom readout (distance-based)
-        const d = this.controls.getDistance();
-        document.getElementById('zoom-display').textContent = `dist ${d.toFixed(1)}`;
+        const zd = document.getElementById('zoom-display');
+        if (this.cameraCtl.mode === 'orbit') zd.textContent = `dist ${this.controls.getDistance().toFixed(1)}`;
+        else zd.textContent = `cam: ${this.cameraCtl.mode}${this.cameraCtl.target ? ' → ' + this.cameraCtl.target.label : ''}`;
     }
 
     frameOn(simX, simY, distance = 18) {
@@ -1125,8 +2109,13 @@ class UIController {
             });
         });
 
-        document.getElementById('btn-add-agent').addEventListener('click', () => {
-            this.game.addAgent();
+        document.getElementById('btn-add-agent-m').addEventListener('click', () => {
+            this.game.addAgent(null, null, null, 'male');
+            this.refreshChips();
+        });
+
+        document.getElementById('btn-add-agent-f').addEventListener('click', () => {
+            this.game.addAgent(null, null, null, 'female');
             this.refreshChips();
         });
 
@@ -1140,12 +2129,11 @@ class UIController {
             this.game.log('Logs exported!', 'act');
         });
 
-        // Canvas clicks — raycast through SceneManager3D
+        // Canvas clicks
         const canvas = this.game.scene.renderer.domElement;
         let downX = 0, downY = 0, downBtn = -1;
         canvas.addEventListener('mousedown', e => { downX = e.clientX; downY = e.clientY; downBtn = e.button; });
         canvas.addEventListener('click', e => {
-            // ignore clicks where the user actually dragged (orbit/pan)
             if (downBtn !== 0) return;
             if (Math.hypot(e.clientX - downX, e.clientY - downY) > 4) return;
 
@@ -1170,13 +2158,31 @@ class UIController {
                 this._clearModes(); return;
             }
 
-            // Agent selection — screen-space pick
+            // Agent selection
             const picked = this.game.scene.pickAgentAtScreen(e.clientX, e.clientY, this.game);
             if (picked) {
                 this.game.selectedAgent = picked;
-                document.getElementById('hud').textContent = `Selected: ${picked.label}`;
+                document.getElementById('hud').textContent = `Selected: ${picked.label} (${picked.gender})`;
                 this.refreshChips();
+                // Retarget the active camera mode at the new selection
+                const mode = this.game.scene.cameraCtl.mode;
+                if (mode !== 'orbit') this.game.scene.setCameraMode(mode, picked);
             }
+        });
+
+        // Camera mode buttons (orbit / 3rd-person / FPS)
+        document.querySelectorAll('.cam-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const mode = btn.dataset.cam;
+                if (mode !== 'orbit' && !this.game.selectedAgent) {
+                    this.game.log('Select an agent first (click them in the scene)', 'warn');
+                    return;
+                }
+                document.querySelectorAll('.cam-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                this.game.scene.setCameraMode(mode, this.game.selectedAgent);
+                if (mode === 'fps') this.game.log('FPS mode — click viewport to lock pointer, ESC to release', 'act');
+            });
         });
 
         this._buildActions();
@@ -1192,23 +2198,24 @@ class UIController {
     }
 
     _tryPlaceDoor(wx, wy) {
+        // Pick the nearest room edge to the click. Multiple doors per wall are
+        // permitted; if the chosen wall is shared with another room, the door
+        // becomes a connector (used by pathfinding).
         const world = this.game.world;
-        for (let i = 0; i < world.rooms.length; i++) {
-            for (let j = i+1; j < world.rooms.length; j++) {
-                const rA = world.rooms[i], rB = world.rooms[j];
-                const wall = world.findSharedWall(rA, rB);
-                if (wall && Math.hypot(wall.x - wx, wall.y - wy) < 60) {
-                    const exists = world.doors.some(d =>
-                        (d.roomA===rA.id && d.roomB===rB.id) || (d.roomA===rB.id && d.roomB===rA.id));
-                    if (exists) { this.game.log('Door already exists here', 'warn'); return; }
-                    world.addDoor(rA.id, rB.id, wall.x, wall.y, wall.orientation);
-                    this.game.log(`Door added: ${rA.label} ↔ ${rB.label}`, 'act');
-                    this.game.logSystem.record(null, 'door_added', null, { rooms: [rA.id, rB.id] });
-                    return;
-                }
-            }
+        const hit = world.pickWallNearPoint(wx, wy, 80);
+        if (!hit) { this.game.log('Click closer to a wall', 'warn'); return; }
+
+        // Check the door footprint fits between adjacent doors on that edge.
+        if (!world.canFitDoorAt(hit.room.id, hit.edge, hit.x, hit.y)) {
+            this.game.log('Not enough room on that wall for another door', 'warn'); return;
         }
-        this.game.log('No shared wall found near click', 'warn');
+
+        const partner = world.findRoomAcross(hit.room, hit.edge, hit.x, hit.y);
+        const partnerId = partner ? partner.id : null;
+        world.addDoor(hit.room.id, partnerId, hit.x, hit.y, hit.orientation);
+        const label = partner ? `${hit.room.label} ↔ ${partner.label}` : `${hit.room.label} (exterior)`;
+        this.game.log(`Door added: ${label}`, 'act');
+        this.game.logSystem.record(null, 'door_added', null, { rooms: [hit.room.id, partnerId] });
     }
 
     _buildActions() {
@@ -1244,7 +2251,7 @@ class UIController {
     }
 
     refreshChips() {
-        this._chips('agent-chips-left', a=>{this.game.selectedAgent=a; document.getElementById('hud').textContent=`Selected: ${a.label}`; this.refreshChips();}, this.game.selectedAgent);
+        this._chips('agent-chips-left', a=>{this.game.selectedAgent=a; document.getElementById('hud').textContent=`Selected: ${a.label} (${a.gender})`; this.refreshChips();}, this.game.selectedAgent);
         this._chips('ia-chips', a=>{this.interactA=a; this.refreshChips();}, this.interactA);
         this._chips('ib-chips', a=>{this.interactB=a; this.refreshChips();}, this.interactB);
     }
@@ -1254,7 +2261,8 @@ class UIController {
         this.game.agents.forEach(a => {
             const c = document.createElement('span');
             c.className = 'chip'+(a===sel?' sel':'');
-            c.innerHTML = `<span class="dot" style="background:${a.color}"></span>${a.label}`;
+            const genderIcon = a.gender === 'female' ? '♀' : '♂';
+            c.innerHTML = `<span class="dot" style="background:${a.color}"></span>${a.label} ${genderIcon}`;
             c.addEventListener('click', ()=>onClick(a));
             w.appendChild(c);
         });
@@ -1269,7 +2277,8 @@ class UIController {
         const bc=(k,v)=>{ let x=(k==='hunger'||k==='boredom')?100-v:v; return x>60?'#95e1d3':x>30?'#f4a261':'#e94560'; };
         const room = this.game.world.getRoom(agent.currentRoom);
 
-        let h = `<b style="color:${agent.color}">${agent.label}</b>`;
+        const genderIcon = agent.gender === 'female' ? '♀' : '♂';
+        let h = `<b style="color:${agent.color}">${agent.label}</b> <span style="font-size:9px;color:${agent.gender==='female'?'#ff69b4':'#4488ff'}">${genderIcon}</span>`;
         if (agent.currentAction) h += ` <span style="color:#53d8fb;font-size:8px">${agent.currentAction}</span>`;
         h += `<span style="float:right;font-size:8px">${s.moodLabel}</span>`;
         if (room) h += `<div style="font-size:8px;color:#555;margin:2px 0">Room: ${room.label}</div>`;
@@ -1283,6 +2292,9 @@ class UIController {
             h += `<div class="sr"><span class="sl">${k}</span><div class="bbg"><div class="bf" style="width:${v}%;background:#444"></div></div><span class="sv">${v}</span></div>`;
         }
         el.innerHTML = h;
+
+        // Animation debug display
+        this._updateAnimDebug(agent);
 
         const tEl = document.getElementById('tgt-state');
         const t = this.interactB;
@@ -1303,6 +2315,32 @@ class UIController {
             const r = this.game.relationships;
             rEl.innerHTML=`${this.interactA.label} → ${this.interactB.label}: <b>${Math.round(r.get(this.interactA.id,this.interactB.id))}</b>/100<br>${this.interactB.label} → ${this.interactA.label}: <b>${Math.round(r.get(this.interactB.id,this.interactA.id))}</b>/100`;
         }
+    }
+
+    _updateAnimDebug(agent) {
+        const el = document.getElementById('anim-display');
+        if (!agent || !agent.animEngine) {
+            el.innerHTML = '<span style="color:#444">No animation data</span>';
+            return;
+        }
+
+        const ae = agent.animEngine;
+        const summary = ae.getClassificationSummary();
+        let html = '';
+
+        // Current state
+        html += `<div style="color:#53d8fb;font-weight:700;margin-bottom:3px">State: ${ae.currentState} ${ae._isPlayingOneShot ? '(one-shot)' : ''}</div>`;
+        html += `<div style="color:#95e1d3;margin-bottom:4px">Playing: ${ae.currentClipName}</div>`;
+
+        // Show categories with counts
+        for (const [cat, clips] of Object.entries(summary)) {
+            const isActive = clips.includes(ae.currentClipName);
+            html += `<div class="anim-group">`;
+            html += `<span class="anim-group-label" style="${isActive ? 'color:#53d8fb' : ''}">${cat} (${clips.length})</span>`;
+            html += `</div>`;
+        }
+
+        el.innerHTML = html;
     }
 }
 
@@ -1328,11 +2366,20 @@ class Game {
     async init() {
         const container = document.getElementById('vp');
         this.scene = new SceneManager3D(container);
+
+        const loadFill = document.getElementById('load-fill');
+        const loadSub = document.querySelector('#loading .load-sub');
         try {
-            await this.scene.loadModelTemplate();
+            await this.scene.loadModelTemplates((msg, pct) => {
+                if (loadSub) loadSub.textContent = msg;
+                if (loadFill) loadFill.style.width = pct + '%';
+            });
         } catch (e) {
             console.warn('Model load failed, using fallback capsules:', e);
         }
+
+        // Brief delay to show 100% before hiding
+        await new Promise(r => setTimeout(r, 300));
         document.getElementById('loading').style.display = 'none';
 
         this.actionSystem = new ActionSystem(this);
@@ -1342,8 +2389,8 @@ class Game {
         this._buildDefaultHouse();
 
         const lr = this.world.rooms[0];
-        this.addAgent(lr.cx - 30, lr.cy, lr.id);
-        this.addAgent(lr.cx + 30, lr.cy, lr.id);
+        this.addAgent(lr.cx - 30, lr.cy, lr.id, 'male');
+        this.addAgent(lr.cx + 30, lr.cy, lr.id, 'female');
         this.selectedAgent = this.agents[0];
 
         // Frame camera on house
@@ -1352,7 +2399,7 @@ class Game {
         this.ui = new UIController(this);
         this.ui.refreshChips();
 
-        this.log('Engine v2 (3D) ready. Rooms/doors/objects all work — agents are GLB-animated.', 'act');
+        this.log('🧠 Animation Intelligence Engine v3 ready — keyword-driven classification active', 'act');
         this.logSystem.record(null, 'engine_start', null);
         requestAnimationFrame(t => this._loop(t));
     }
@@ -1373,17 +2420,17 @@ class Game {
         return r;
     }
 
-    addAgent(x, y, roomId) {
+    addAgent(x, y, roomId, gender = 'male') {
         if (!roomId) {
             const room = this.world.roomAt(x || 0, y || 0) || this.world.rooms[0];
             if (!room) { this.log('No rooms exist!', 'warn'); return; }
             roomId = room.id;
             if (!x) { x = room.cx + randR(-40,40); y = room.cy + randR(-40,40); }
         }
-        const a = new Agent(x, y, roomId);
+        const a = new Agent(x, y, roomId, gender);
         this.agents.push(a);
-        this.log(`${a.label} joined`, 'act');
-        this.logSystem.record(a, 'agent_created', null, { room: roomId });
+        this.log(`${a.label} (${gender}) joined`, 'act');
+        this.logSystem.record(a, 'agent_created', null, { room: roomId, gender });
         if (this.ui) this.ui.refreshChips();
         return a;
     }
@@ -1422,7 +2469,7 @@ class Game {
             return obj;
         };
 
-        const useObject = async (agent, game, type, duration, stateChanges, msg) => {
+        const useObject = async (agent, game, type, duration, stateChanges, msg, animAction = null) => {
             const obj = game.findUnoccupiedObject(type);
             if (!obj) { game.log(`No available ${type}!`,'warn'); return null; }
             const pt = obj.interactionPoint;
@@ -1430,6 +2477,12 @@ class Game {
             obj.occupiedBy = agent.id;
             game.log(`${agent.label} using ${obj.id}...`,'act');
             game.logSystem.record(agent, 'use_object', obj.id, { type });
+
+            // Trigger contextual animation
+            if (animAction && agent.animEngine) {
+                agent.animEngine.triggerAction(animAction);
+            }
+
             await wait(duration);
             agent.state.modify(stateChanges);
             obj.occupiedBy = null;
@@ -1443,31 +2496,102 @@ class Game {
 
         this.actionSystem.register('eat', {
             description:'Eat at kitchen', target:'kitchen',
-            fn: async(a,g)=>{ await useObject(a,g,'kitchen',2000,{hunger:-30,energy:5,comfort:3},'finished eating'); }
+            fn: async(a,g)=>{ await useObject(a,g,'kitchen',2000,{hunger:-30,energy:5,comfort:3},'finished eating', 'eat'); }
         });
         this.actionSystem.register('sleep', {
             description:'Sleep in bed', target:'bed',
-            fn: async(a,g)=>{ await useObject(a,g,'bed',3000,{energy:40,comfort:10,hunger:5,boredom:5},'woke up rested'); }
+            fn: async(a,g)=>{
+                const obj = g.findUnoccupiedObject('bed');
+                if (!obj) { g.log('No available bed!','warn'); return; }
+                const pt = obj.interactionPoint;
+                await a.navigateTo(pt.x, pt.y);
+                obj.occupiedBy = a.id;
+                g.log(`${a.label} sleeping...`,'act');
+                // Set sleep animation state
+                if (a.animEngine) a.animEngine.playByName('Sleeping', true);
+                a.currentAction = 'sleep';
+                await wait(3000);
+                a.state.modify({energy:40,comfort:10,hunger:5,boredom:5});
+                obj.occupiedBy = null;
+                if (a.animEngine) a.animEngine.playByName('LayToIdle');
+                await wait(800);
+                g.log(`${a.label} woke up rested`,'act');
+            }
         });
         this.actionSystem.register('use_toilet', {
             description:'Use bathroom', target:'bathroom',
-            fn: async(a,g)=>{ await useObject(a,g,'bathroom',1500,{hygiene:35,comfort:5},'feels clean'); }
+            fn: async(a,g)=>{ await useObject(a,g,'bathroom',1500,{hygiene:35,comfort:5},'feels clean', 'interact'); }
         });
         this.actionSystem.register('watch_tv', {
             description:'Watch TV', target:'tv',
-            fn: async(a,g)=>{ await useObject(a,g,'tv',2500,{boredom:-35,energy:-3,comfort:5},'done watching TV'); }
+            fn: async(a,g)=>{
+                const obj = g.findUnoccupiedObject('tv');
+                if (!obj) { g.log('No available TV!','warn'); return; }
+                const pt = obj.interactionPoint;
+                await a.navigateTo(pt.x, pt.y);
+                obj.occupiedBy = a.id;
+                g.log(`${a.label} watching TV...`,'act');
+                // Sit while watching
+                if (a.animEngine) a.animEngine.setState('sit');
+                a.currentAction = 'relax';
+                await wait(2500);
+                a.state.modify({boredom:-35,energy:-3,comfort:5});
+                obj.occupiedBy = null;
+                if (a.animEngine) a.animEngine.setState('idle');
+                g.log(`${a.label} done watching TV`,'act');
+            }
         });
         this.actionSystem.register('play_games', {
             description:'Play games', target:'console',
-            fn: async(a,g)=>{ await useObject(a,g,'console',3000,{boredom:-40,energy:-5,comfort:4},'done playing'); }
+            fn: async(a,g)=>{
+                const obj = g.findUnoccupiedObject('console');
+                if (!obj) { g.log('No available console!','warn'); return; }
+                const pt = obj.interactionPoint;
+                await a.navigateTo(pt.x, pt.y);
+                obj.occupiedBy = a.id;
+                g.log(`${a.label} playing games...`,'act');
+                if (a.animEngine) a.animEngine.setState('sit');
+                a.currentAction = 'sit';
+                await wait(3000);
+                a.state.modify({boredom:-40,energy:-5,comfort:4});
+                obj.occupiedBy = null;
+                // Victory emote when done
+                if (a.animEngine) await a.animEngine.triggerAction('victory');
+                g.log(`${a.label} done playing`,'act');
+            }
         });
         this.actionSystem.register('relax', {
             description:'Relax on sofa', target:'sofa',
-            fn: async(a,g)=>{ await useObject(a,g,'sofa',2000,{boredom:-15,energy:10,comfort:12},'feels relaxed'); }
+            fn: async(a,g)=>{
+                const obj = g.findUnoccupiedObject('sofa');
+                if (!obj) { g.log('No available sofa!','warn'); return; }
+                const pt = obj.interactionPoint;
+                await a.navigateTo(pt.x, pt.y);
+                obj.occupiedBy = a.id;
+                g.log(`${a.label} relaxing...`,'act');
+                if (a.animEngine) a.animEngine.setState('sit');
+                a.currentAction = 'relax';
+                await wait(2000);
+                a.state.modify({boredom:-15,energy:10,comfort:12});
+                obj.occupiedBy = null;
+                if (a.animEngine) a.animEngine.setState('idle');
+                g.log(`${a.label} feels relaxed`,'act');
+            }
         });
         this.actionSystem.register('idle', {
             description:'Stand still', target:null,
-            fn: async(a,g)=>{ g.log(`${a.label} idling...`); await wait(1200); }
+            fn: async(a,g)=>{
+                g.log(`${a.label} idling...`);
+                // Pick a random idle variant
+                if (a.animEngine) {
+                    const idleClips = a.animEngine.getClipsForCategory('idle');
+                    if (idleClips.length > 1) {
+                        const randomIdle = pick(idleClips);
+                        a.animEngine.playByName(randomIdle.name, true);
+                    }
+                }
+                await wait(1200);
+            }
         });
         this.actionSystem.register('wander', {
             description:'Random walk', target:null,
@@ -1516,24 +2640,29 @@ class Game {
 const game = new Game();
 game.init();
 
-// ── Global API (identical to 2D engine) ──
+// ── Global API ──
 window.game = game;
 window.simAPI = {
     executeAction:   (agentId,name) => { const a=game.agents.find(x=>x.id===agentId); return a?a.executeAction(name):Promise.resolve(false); },
     interact:        (aId,bId,name) => { const a=game.agents.find(x=>x.id===aId),b=game.agents.find(x=>x.id===bId); return(a&&b)?game.interactionSystem.execute(name,a,b):Promise.resolve(false); },
-    getAgents:       () => game.agents.map(a=>({id:a.id,label:a.label,x:Math.round(a.x),y:Math.round(a.y),room:a.currentRoom,busy:a.busy,state:a.state.toJSON(),personality:a.personality.toJSON()})),
+    getAgents:       () => game.agents.map(a=>({id:a.id,label:a.label,gender:a.gender,x:Math.round(a.x),y:Math.round(a.y),room:a.currentRoom,busy:a.busy,state:a.state.toJSON(),personality:a.personality.toJSON(),animState:a.animEngine?{state:a.animEngine.currentState,clip:a.animEngine.currentClipName,isOneShot:a.animEngine._isPlayingOneShot}:null})),
     getObjects:      () => game.objects.map(o=>({id:o.id,type:o.type,x:o.x,y:o.y,room:o.roomId,occupied:o.isOccupied,occupiedBy:o.occupiedBy})),
     getRooms:        () => game.world.rooms.map(r=>({id:r.id,type:r.type,label:r.label,x:r.x,y:r.y,w:r.w,h:r.h})),
     getDoors:        () => game.world.doors.map(d=>({id:d.id,roomA:d.roomA,roomB:d.roomB,x:d.x,y:d.y})),
     getActions:      () => game.actionSystem.getAvailableActions(),
     getInteractions: () => game.interactionSystem.getAvailableInteractions(),
     getRelationship: (a,b) => game.relationships.get(a,b),
-    addAgent:        () => { const a=game.addAgent(); return a?.id; },
+    addAgent:        (gender='male') => { const a=game.addAgent(null,null,null,gender); return a?.id; },
     addRoom:         (type,x,y) => { const r=game.addRoom(type,x,y); return r.id; },
     placeObject:     (type,x,y,roomId) => { const o=game.placeObject(type,x,y,roomId); return o.id; },
     setAutonomy:     (id,on) => { const a=game.agents.find(x=>x.id===id); if(a)a._isAutonomous=on; },
     exportLogs:      () => game.logSystem.export(),
     getLogs:         () => game.logSystem.events,
+    // NEW: Animation Intelligence API
+    getAnimations:   (agentId) => { const a=game.agents.find(x=>x.id===agentId); return a?.animEngine?.getClassificationSummary() || null; },
+    triggerAnim:     (agentId, action) => { const a=game.agents.find(x=>x.id===agentId); return a?.animEngine?.triggerAction(action) || Promise.resolve(); },
+    playAnimByName:  (agentId, name, loop=false) => { const a=game.agents.find(x=>x.id===agentId); return a?.animEngine?.playByName(name, loop) || Promise.resolve(); },
+    setAnimState:    (agentId, state) => { const a=game.agents.find(x=>x.id===agentId); if(a?.animEngine) a.animEngine.setState(state); },
 };
 </script>
 </body>
